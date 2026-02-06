@@ -2787,6 +2787,7 @@ name = "kakapo"
 version = "0.1.0"
 dependencies = [
  "gpui",
+ "unicode-segmentation",
  "windows 0.57.0",
 ]
 

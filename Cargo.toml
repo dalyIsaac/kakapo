@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 gpui = "0.2.2"
+unicode-segmentation = "1.10"
 
 [dependencies.windows]
 version = "=0.57.0"
