@@ -14,7 +14,7 @@ impl Render for HelloWorld {
             .flex_col()
             .gap_3()
             .bg(rgb(0x505050))
-            .size(px(500.0))
+            .size_full()
             .justify_center()
             .items_center()
             .shadow_lg()
@@ -43,6 +43,7 @@ fn main() {
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(px(300.0), px(300.0))),
                 ..Default::default()
             },
             |_, cx| {
