@@ -5,7 +5,7 @@ use gpui::{
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_UNICODE,
+    SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_UNICODE, KEYEVENTF_KEYUP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowTextW, IsWindowVisible, SetForegroundWindow,
@@ -88,7 +88,7 @@ fn send_unicode_keystrokes(hwnd: HWND, text: &str) {
             input_up.Anonymous.ki = KEYBDINPUT {
                 wVk: Default::default(),
                 wScan: ch as u16,
-                dwFlags: KEYEVENTF_UNICODE | KEYBD_EVENT_FLAGS(0x0002), // KEYEVENTF_KEYUP
+                dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
                 time: 0,
                 dwExtraInfo: 0,
             };
@@ -141,7 +141,8 @@ impl WindowList {
             self.update_input(text, cx);
         } else if event.keystroke.key == "enter" {
             self.send_keystrokes();
-        } else if event.keystroke.key.len() == 1 {
+        } else if event.keystroke.key.chars().count() == 1 && !event.keystroke.key.chars().next().unwrap().is_control() {
+            // Only add printable single characters
             let mut text = self.input_text.to_string();
             text.push_str(&event.keystroke.key);
             self.update_input(text, cx);
