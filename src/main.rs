@@ -1,11 +1,11 @@
 use gpui::{
-    App, Application, Bounds, Context, Window, WindowBounds, WindowOptions, div, prelude::*, px,
-    rgb, size, KeyDownEvent, SharedString, MouseDownEvent,
+    div, prelude::*, px, rgb, size, App, Application, Bounds, Context, FocusHandle, KeyDownEvent,
+    MouseDownEvent, SharedString, Window, WindowBounds, WindowOptions,
 };
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_UNICODE, KEYEVENTF_KEYUP,
+    SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowTextW, IsWindowVisible, SetForegroundWindow,
@@ -62,7 +62,7 @@ fn send_unicode_keystrokes(hwnd: HWND, text: &str) {
     unsafe {
         // Bring the target window to the foreground
         let _ = SetForegroundWindow(hwnd);
-        
+
         // Small delay to let the window activation complete
         std::thread::sleep(std::time::Duration::from_millis(100));
 
@@ -106,13 +106,15 @@ fn send_unicode_keystrokes(hwnd: HWND, text: &str) {
 struct WindowList {
     selected_window: Option<WindowInfo>,
     input_text: SharedString,
+    focus_handle: FocusHandle,
 }
 
 impl WindowList {
-    fn new() -> Self {
+    fn new(cx: &mut Context<Self>) -> Self {
         Self {
             selected_window: None,
             input_text: SharedString::from(""),
+            focus_handle: cx.focus_handle(),
         }
     }
 
@@ -134,14 +136,21 @@ impl WindowList {
         }
     }
 
-    fn handle_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_key_down(
+        &mut self,
+        event: &KeyDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if event.keystroke.key == "backspace" {
             let mut text = self.input_text.to_string();
             text.pop();
             self.update_input(text, cx);
         } else if event.keystroke.key == "enter" {
             self.send_keystrokes();
-        } else if event.keystroke.key.chars().count() == 1 && !event.keystroke.key.chars().next().unwrap().is_control() {
+        } else if event.keystroke.key.chars().count() == 1
+            && !event.keystroke.key.chars().next().unwrap().is_control()
+        {
             // Only add printable single characters
             let mut text = self.input_text.to_string();
             text.push_str(&event.keystroke.key);
@@ -149,7 +158,12 @@ impl WindowList {
         }
     }
 
-    fn handle_send_click(&mut self, _event: &MouseDownEvent, _window: &mut Window, _cx: &mut Context<Self>) {
+    fn handle_send_click(
+        &mut self,
+        _event: &MouseDownEvent,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
         if self.selected_window.is_some() && !self.input_text.is_empty() {
             self.send_keystrokes();
         }
@@ -229,6 +243,11 @@ impl Render for WindowList {
                                     .rounded_md()
                                     .border_1()
                                     .border_color(rgb(0x505050))
+                                    .track_focus(&self.focus_handle)
+                                    .on_key_down(cx.listener(Self::handle_key_down))
+                                    .on_mouse_down(gpui::MouseButton::Left, cx.listener(|view, _event, window, _cx| {
+                                        window.focus(&view.focus_handle);
+                                    }))
                                     .child(
                                         div()
                                             .text_color(if input_empty {
@@ -241,8 +260,7 @@ impl Render for WindowList {
                                             } else {
                                                 input_text_str
                                             }),
-                                    )
-                                    .on_key_down(cx.listener(Self::handle_key_down)),
+                                    ),
                             )
                             .child(
                                 div()
@@ -400,7 +418,7 @@ fn main() {
                 window_min_size: Some(size(px(500.0), px(500.0))),
                 ..Default::default()
             },
-            |_window, cx| cx.new(|_| WindowList::new()),
+            |_window, cx| cx.new(|cx| WindowList::new(cx)),
         )
         .unwrap();
     });
