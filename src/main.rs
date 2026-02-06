@@ -3,9 +3,8 @@ use gpui::{
     rgb, size,
 };
 use std::sync::{Arc, Mutex};
-use windows::Win32::Foundation::{HWND, LPARAM};
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, IsWindowVisible};
-use windows::core::BOOL;
 
 #[derive(Clone, Debug)]
 struct WindowInfo {
