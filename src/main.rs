@@ -96,46 +96,68 @@ impl Render for WindowList {
                     .rounded_lg()
                     .border_1()
                     .border_color(rgb(0x505050))
+                    .flex_grow()
+                    .flex_shrink()
+                    .overflow_hidden()
                     .child(
                         div()
                             .text_lg()
                             .text_color(rgb(0xffffff))
                             .mb_2()
+                            .flex_shrink_0()
                             .child("Window List:"),
                     )
-                    .children(windows.into_iter().enumerate().map(|(i, window_info)| {
+                    .child(
                         div()
                             .flex()
+                            .flex_col()
                             .gap_2()
-                            .p_2()
-                            .rounded_md()
-                            .bg(rgb(0x353535))
-                            .border_1()
-                            .border_color(rgb(0x454545))
-                            .hover(|style| style.bg(rgb(0x404040)))
-                            .child(
-                                div()
-                                    .text_color(rgb(0x888888))
-                                    .child(format!("{}. ", i + 1)),
-                            )
-                            .child(
+                            .id("window_list")
+                            .overflow_y_scroll()
+                            .flex_grow()
+                            .flex_shrink()
+                            .min_h(px(0.))
+                            .children(windows.into_iter().enumerate().map(|(i, window_info)| {
                                 div()
                                     .flex()
-                                    .flex_col()
-                                    .gap_1()
+                                    .gap_2()
+                                    .p_2()
+                                    .rounded_md()
+                                    .bg(rgb(0x353535))
+                                    .border_1()
+                                    .border_color(rgb(0x454545))
+                                    .hover(|style| style.bg(rgb(0x404040)))
+                                    .min_w_0()
                                     .child(
                                         div()
-                                            .text_color(rgb(0xcccccc))
-                                            .child(window_info.title.clone()),
+                                            .text_color(rgb(0x888888))
+                                            .flex_shrink_0()
+                                            .child(format!("{}. ", i + 1)),
                                     )
                                     .child(
                                         div()
-                                            .text_xs()
-                                            .text_color(rgb(0x666666))
-                                            .child(format!("HWND: 0x{:X}", window_info.hwnd)),
-                                    ),
-                            )
-                    })),
+                                            .flex()
+                                            .flex_col()
+                                            .gap_1()
+                                            .min_w_0()
+                                            .flex_grow()
+                                            .child(
+                                                div()
+                                                    .text_color(rgb(0xcccccc))
+                                                    .w_full()
+                                                    .overflow_hidden()
+                                                    .text_ellipsis()
+                                                    .whitespace_nowrap()
+                                                    .child(window_info.title.clone()),
+                                            )
+                                            .child(
+                                                div().text_xs().text_color(rgb(0x666666)).child(
+                                                    format!("HWND: 0x{:X}", window_info.hwnd),
+                                                ),
+                                            ),
+                                    )
+                            })),
+                    ),
             )
             .child(
                 div()
