@@ -5,3 +5,10 @@ edition = "2024"
 
 [dependencies]
 gpui = "0.2.2"
+
+[dependencies.windows]
+version = ">=0.59, <=0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+]
