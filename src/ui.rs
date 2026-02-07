@@ -16,6 +16,7 @@ pub struct WindowList {
     input_state: Entity<InputState>,
     focus_handle: FocusHandle,
     cached_windows: Arc<Mutex<Arc<Vec<WindowInfo>>>>,
+    cached_windows_local: Arc<Vec<WindowInfo>>,
     typing_config: TypingConfig,
     words_per_minute_input: Entity<InputState>,
 }
@@ -35,14 +36,16 @@ impl WindowList {
                 .default_value(typing_config.words_per_minute.to_string())
         });
 
-        let cached_windows = Arc::new(Mutex::new(Arc::new(get_system_windows())));
+        let initial_windows = Arc::new(get_system_windows());
+        let cached_windows = Arc::new(Mutex::new(Arc::clone(&initial_windows)));
         
         // Start background thread to periodically refresh window list
         // This keeps the expensive Windows API call off the UI thread
+        // Refresh every 2 seconds to minimize overhead
         let windows_clone = Arc::clone(&cached_windows);
         std::thread::spawn(move || {
             loop {
-                std::thread::sleep(Duration::from_secs(1));
+                std::thread::sleep(Duration::from_secs(2));
                 let windows = Arc::new(get_system_windows());
                 if let Ok(mut cached) = windows_clone.lock() {
                     *cached = windows;
@@ -55,6 +58,7 @@ impl WindowList {
             input_state,
             focus_handle: cx.focus_handle(),
             cached_windows,
+            cached_windows_local: initial_windows,
             typing_config,
             words_per_minute_input,
         }
@@ -106,17 +110,8 @@ impl WindowList {
         }
     }
 
-    fn toggle_jitter(&mut self, cx: &mut Context<Self>) {
-        self.typing_config.enable_jitter = !self.typing_config.enable_jitter;
-        cx.notify();
-    }
-
     /// Render the typing speed configuration controls
-    fn render_typing_speed_controls(
-        &self,
-        cx: &Context<Self>,
-        jitter_enabled: bool,
-    ) -> impl IntoElement {
+    fn render_typing_speed_controls(&self, _cx: &Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .gap_2()
@@ -132,17 +127,6 @@ impl WindowList {
                 div()
                     .w(px(100.))
                     .child(Input::new(&self.words_per_minute_input)),
-            )
-            .child(
-                Button::new("toggle_jitter")
-                    .label(if jitter_enabled {
-                        "✓ Jitter"
-                    } else {
-                        "Jitter"
-                    })
-                    .on_click(cx.listener(|view, _event, _window, cx| {
-                        view.toggle_jitter(cx);
-                    })),
             )
     }
 
@@ -193,7 +177,6 @@ impl WindowList {
     fn render_input_section(
         &self,
         cx: &Context<Self>,
-        jitter_enabled: bool,
         has_selection: bool,
         selected_title: Option<String>,
     ) -> impl IntoElement {
@@ -213,7 +196,7 @@ impl WindowList {
                     .mb_2()
                     .child("Kakapo: Send Keystrokes"),
             )
-            .child(self.render_typing_speed_controls(cx, jitter_enabled))
+            .child(self.render_typing_speed_controls(cx))
             .child(self.render_text_input(cx, has_selection))
             .child(self.render_status_messages(selected_title, has_selection))
     }
@@ -336,25 +319,25 @@ impl WindowList {
 
 impl Render for WindowList {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Read the cached windows from the background thread
-        // Clone only the Arc pointer, not the actual vector
-        let windows = self
-            .cached_windows
-            .lock()
-            .expect("Window cache mutex should not be poisoned")
-            .clone();
+        // Try to update local cache from background thread without blocking
+        // This avoids locking on every render frame
+        if let Ok(cached) = self.cached_windows.try_lock() {
+            self.cached_windows_local = Arc::clone(&cached);
+        }
+        
+        // Use the local cached copy for rendering - no lock needed
+        let windows = &self.cached_windows_local;
         let selected_hwnd = self.selected_window.as_ref().map(|w| w.hwnd);
         let has_selection = self.selected_window.is_some();
         let selected_title = self.selected_window.as_ref().map(|w| w.title.clone());
-        let jitter_enabled = self.typing_config.enable_jitter;
 
         v_flex()
             .gap_3()
             .bg(rgb(0x2d2d2d))
             .size_full()
             .p_4()
-            .child(self.render_input_section(cx, jitter_enabled, has_selection, selected_title))
-            .child(self.render_window_list_section(cx, &windows, selected_hwnd))
+            .child(self.render_input_section(cx, has_selection, selected_title))
+            .child(self.render_window_list_section(cx, windows, selected_hwnd))
     }
 }
 
