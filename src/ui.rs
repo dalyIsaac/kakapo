@@ -8,7 +8,7 @@ use gpui_component::{
     v_flex, Disableable,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 
@@ -18,7 +18,7 @@ pub struct WindowList {
     focus_handle: FocusHandle,
     cached_windows: Vec<WindowInfo>,
     last_refresh: Instant,
-    typing_config: TypingConfig,
+    typing_config: Arc<Mutex<TypingConfig>>,
     words_per_minute_input: Entity<InputState>,
     is_typing: Arc<AtomicBool>,
     is_paused: Arc<AtomicBool>,
@@ -32,11 +32,11 @@ impl WindowList {
                 .multi_line(true)
         });
 
-        let typing_config = TypingConfig::default();
+        let typing_config = Arc::new(Mutex::new(TypingConfig::default()));
         let words_per_minute_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder(DEFAULT_WORDS_PER_MINUTE.to_string())
-                .default_value(typing_config.words_per_minute.to_string())
+                .default_value(typing_config.lock().unwrap().words_per_minute.to_string())
         });
 
         Self {
@@ -125,14 +125,18 @@ impl WindowList {
         let value = self.words_per_minute_input.read(cx).value();
         if let Ok(words_per_minute) = value.parse::<f64>() {
             if words_per_minute > 0.0 && words_per_minute <= TypingConfig::max_words_per_minute() {
-                self.typing_config.words_per_minute = words_per_minute;
+                if let Ok(mut config) = self.typing_config.lock() {
+                    config.words_per_minute = words_per_minute;
+                }
                 cx.notify();
             }
         }
     }
 
     fn toggle_jitter(&mut self, cx: &mut Context<Self>) {
-        self.typing_config.enable_jitter = !self.typing_config.enable_jitter;
+        if let Ok(mut config) = self.typing_config.lock() {
+            config.enable_jitter = !config.enable_jitter;
+        }
         cx.notify();
     }
 
@@ -396,7 +400,7 @@ impl Render for WindowList {
         let selected_hwnd = self.selected_window.as_ref().map(|w| w.hwnd);
         let has_selection = self.selected_window.is_some();
         let selected_title = self.selected_window.as_ref().map(|w| w.title.clone());
-        let jitter_enabled = self.typing_config.enable_jitter;
+        let jitter_enabled = self.typing_config.lock().map(|c| c.enable_jitter).unwrap_or(true);
         let is_typing = self.is_typing.load(Ordering::SeqCst);
         let is_paused = self.is_paused.load(Ordering::SeqCst);
 

@@ -2,7 +2,7 @@ use crate::rng::SimpleRng;
 use crate::typing::{calculate_keystroke_delay, TypingConfig};
 use crate::window_manager::is_window_focused;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, VIRTUAL_KEY,
@@ -113,7 +113,7 @@ fn activate_window(hwnd: HWND) {
 pub fn send_unicode_keystrokes(
     hwnd: HWND,
     text: &str,
-    config: &TypingConfig,
+    config: &Arc<Mutex<TypingConfig>>,
     continue_flag: &Arc<AtomicBool>,
     pause_flag: &Arc<AtomicBool>,
 ) -> Result<(), String> {
@@ -147,7 +147,13 @@ pub fn send_unicode_keystrokes(
         }
 
         // Variable delay between characters based on typing configuration
-        let delay = calculate_keystroke_delay(config, char_index, total_chars, &rng);
+        // Read config dynamically to allow changes during typing
+        let delay = if let Ok(config_guard) = config.lock() {
+            calculate_keystroke_delay(&config_guard, char_index, total_chars, &rng)
+        } else {
+            // Fallback to default if lock fails
+            std::time::Duration::from_millis(50)
+        };
         std::thread::sleep(delay);
     }
 
