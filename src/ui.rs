@@ -1,5 +1,5 @@
 use crate::keyboard::send_unicode_keystrokes;
-use crate::typing::TypingConfig;
+use crate::typing::{TypingConfig, DEFAULT_WORDS_PER_MINUTE};
 use crate::window_manager::{get_system_windows, WindowInfo};
 use gpui::{
     div, prelude::*, px, rgb, App, Context, Entity, FocusHandle, Focusable, Window,
@@ -31,7 +31,7 @@ impl WindowList {
         let typing_config = TypingConfig::default();
         let words_per_minute_input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("80")
+                .placeholder(&DEFAULT_WORDS_PER_MINUTE.to_string())
                 .default_value(typing_config.words_per_minute.to_string())
         });
 

@@ -2,7 +2,7 @@ use crate::rng::SimpleRng;
 use std::time::Duration;
 
 // Constants for typing configuration
-const DEFAULT_WORDS_PER_MINUTE: f64 = 80.0;
+pub const DEFAULT_WORDS_PER_MINUTE: f64 = 80.0;
 const MAX_WORDS_PER_MINUTE: f64 = 2000.0;
 const CHARS_PER_WORD: f64 = 5.0; // Standard assumption: 1 word = 5 characters
 const MIN_DELAY_MS: f64 = 5.0;
