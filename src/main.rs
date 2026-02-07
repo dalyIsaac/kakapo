@@ -7,6 +7,7 @@ use gpui::{
 };
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use unicode_segmentation::*;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -722,6 +723,7 @@ struct WindowList {
     text_input: Entity<TextInput>,
     focus_handle: FocusHandle,
     cached_windows: Vec<WindowInfo>,
+    last_refresh: Instant,
 }
 
 impl WindowList {
@@ -732,6 +734,17 @@ impl WindowList {
             text_input,
             focus_handle: cx.focus_handle(),
             cached_windows: get_system_windows(),
+            last_refresh: Instant::now(),
+        }
+    }
+
+    fn refresh_windows_if_needed(&mut self, cx: &mut Context<Self>) {
+        // Refresh window list if it's been more than 1 second since last refresh
+        // This will catch window focus changes
+        if self.last_refresh.elapsed() > Duration::from_secs(1) {
+            self.cached_windows = get_system_windows();
+            self.last_refresh = Instant::now();
+            cx.notify();
         }
     }
 
@@ -772,6 +785,9 @@ impl WindowList {
 
 impl Render for WindowList {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Refresh window list if needed (detects window focus changes)
+        self.refresh_windows_if_needed(cx);
+        
         let windows = &self.cached_windows;
         let selected_hwnd = self.selected_window.as_ref().map(|w| w.hwnd);
         let has_selection = self.selected_window.is_some();
