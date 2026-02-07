@@ -4,7 +4,9 @@ mod typing;
 mod ui;
 mod window_manager;
 
-use gpui::{px, size, App, AppContext, Application, Bounds, Focusable, WindowBounds, WindowOptions};
+use gpui::{
+    px, size, App, AppContext, Application, Bounds, Focusable, WindowBounds, WindowOptions,
+};
 use gpui_component::Root;
 use gpui_component_assets::Assets;
 use ui::WindowList;
@@ -27,16 +29,16 @@ fn main() {
         // Open window directly without detached spawn
         match cx.open_window(window_options, |window, cx| {
             let view = cx.new(|cx| WindowList::new(window, cx));
-            
+
             // Focus the input on window open
             let input_state = view.read(cx).input_state().clone();
             let focus_handle = input_state.read(cx).focus_handle(cx);
             window.focus(&focus_handle);
-            
+
             // Wrap the view in Root as required by gpui-component
             cx.new(|cx| Root::new(view, window, cx))
         }) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 eprintln!("Failed to create window: {:?}", e);
             }
