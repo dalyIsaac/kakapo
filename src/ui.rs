@@ -106,7 +106,24 @@ impl WindowList {
 
     fn toggle_pause(&mut self, cx: &mut Context<Self>) {
         let current = self.is_paused.load(Ordering::SeqCst);
-        self.is_paused.store(!current, Ordering::SeqCst);
+        let new_state = !current;
+        self.is_paused.store(new_state, Ordering::SeqCst);
+        
+        // Requirement 1: When resuming (going from paused to not paused), refocus the target window
+        if !new_state && current {
+            // We're resuming from pause
+            if let Some(ref window) = self.selected_window {
+                let hwnd = HWND(window.hwnd as _);
+                // Refocus the window in a separate thread to avoid blocking UI
+                std::thread::spawn(move || {
+                    unsafe {
+                        use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+                        let _ = SetForegroundWindow(hwnd);
+                    }
+                });
+            }
+        }
+        
         cx.notify();
     }
 
@@ -402,7 +419,25 @@ impl Render for WindowList {
         let selected_title = self.selected_window.as_ref().map(|w| w.title.clone());
         let jitter_enabled = self.typing_config.lock().map(|c| c.enable_jitter).unwrap_or(true);
         let is_typing = self.is_typing.load(Ordering::SeqCst);
-        let is_paused = self.is_paused.load(Ordering::SeqCst);
+        let mut is_paused = self.is_paused.load(Ordering::SeqCst);
+        
+        // Requirement 2: Check if target window has lost focus while typing
+        // If so, treat it as paused for UI purposes (button shows "Resume")
+        let target_has_focus = if is_typing && has_selection {
+            if let Some(ref window) = self.selected_window {
+                use crate::window_manager::is_window_focused;
+                is_window_focused(HWND(window.hwnd as _))
+            } else {
+                true
+            }
+        } else {
+            true
+        };
+        
+        // If target lost focus while typing, show as paused in UI
+        if is_typing && !target_has_focus {
+            is_paused = true;
+        }
 
         v_flex()
             .gap_3()
