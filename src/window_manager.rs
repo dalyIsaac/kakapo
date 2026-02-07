@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, IsWindowVisible};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetForegroundWindow, GetWindowTextW, IsWindowVisible,
+};
 
 #[derive(Clone, Debug)]
 pub struct WindowInfo {
@@ -30,8 +32,8 @@ unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> B
 
         if len > 0 {
             let title_str = String::from_utf16_lossy(&title[..len as usize]);
-            // Filter out empty titles and some system windows
-            if !title_str.is_empty() {
+            // Filter out empty titles, Kakapo itself, and some system windows
+            if !title_str.is_empty() && title_str != "Kakapo" {
                 windows.lock().unwrap().push(WindowInfo {
                     title: title_str,
                     hwnd: hwnd.0,
@@ -41,4 +43,12 @@ unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> B
     }
 
     true.into()
+}
+
+/// Checks if the given window handle is the currently focused window
+pub fn is_window_focused(hwnd: HWND) -> bool {
+    unsafe {
+        let foreground = GetForegroundWindow();
+        foreground.0 == hwnd.0
+    }
 }

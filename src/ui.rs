@@ -1,12 +1,13 @@
 use crate::keyboard::send_unicode_keystrokes;
 use crate::typing::{TypingConfig, DEFAULT_WORDS_PER_MINUTE};
-use crate::window_manager::{get_system_windows, WindowInfo};
+use crate::window_manager::{get_system_windows, is_window_focused, WindowInfo};
 use gpui::{div, prelude::*, px, rgb, App, Context, Entity, FocusHandle, Focusable, Window};
 use gpui_component::{
     button::{Button, ButtonVariants},
     input::{Input, InputState},
     v_flex, Disableable,
 };
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use windows::Win32::Foundation::HWND;
@@ -17,8 +18,15 @@ pub struct WindowList {
     focus_handle: FocusHandle,
     cached_windows: Arc<Mutex<Arc<Vec<WindowInfo>>>>,
     cached_windows_local: Arc<Vec<WindowInfo>>,
-    typing_config: TypingConfig,
+    typing_config: Arc<Mutex<TypingConfig>>,
     words_per_minute_input: Entity<InputState>,
+    is_typing: Arc<AtomicBool>,
+    is_paused: Arc<AtomicBool>,
+    last_text: String,
+    last_wpm_input: String,
+    current_target_hwnd: Arc<Mutex<Option<isize>>>,
+    current_session_token: Option<Arc<AtomicBool>>,
+    session_counter: Arc<AtomicU64>,
 }
 
 impl WindowList {
@@ -29,11 +37,11 @@ impl WindowList {
                 .multi_line(true)
         });
 
-        let typing_config = TypingConfig::default();
+        let typing_config = Arc::new(Mutex::new(TypingConfig::default()));
         let words_per_minute_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder(DEFAULT_WORDS_PER_MINUTE.to_string())
-                .default_value(typing_config.words_per_minute.to_string())
+                .default_value(typing_config.lock().unwrap().words_per_minute.to_string())
         });
 
         let initial_windows = Arc::new(get_system_windows());
@@ -59,6 +67,13 @@ impl WindowList {
             cached_windows_local: initial_windows,
             typing_config,
             words_per_minute_input,
+            is_typing: Arc::new(AtomicBool::new(false)),
+            is_paused: Arc::new(AtomicBool::new(false)),
+            last_text: String::new(),
+            last_wpm_input: String::new(),
+            current_target_hwnd: Arc::new(Mutex::new(None)),
+            current_session_token: None,
+            session_counter: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -67,7 +82,15 @@ impl WindowList {
     }
 
     fn select_window(&mut self, window_info: WindowInfo, cx: &mut Context<Self>) {
-        self.selected_window = Some(window_info);
+        self.selected_window = Some(window_info.clone());
+
+        // If currently typing, update the target window
+        if self.is_typing.load(Ordering::SeqCst) {
+            if let Ok(mut target) = self.current_target_hwnd.lock() {
+                *target = Some(window_info.hwnd);
+            }
+        }
+
         cx.notify();
     }
 
@@ -77,14 +100,141 @@ impl WindowList {
             if !text.is_empty() {
                 let hwnd = window.hwnd;
                 let config = self.typing_config.clone();
+                let is_typing = self.is_typing.clone();
+                let is_paused = self.is_paused.clone();
+                let target_hwnd = self.current_target_hwnd.clone();
+                let session_counter = self.session_counter.clone();
+
+                // Increment session ID for this new typing session
+                let current_session_id = session_counter.fetch_add(1, Ordering::SeqCst) + 1;
+
+                // Create a new per-session cancellation token
+                // This prevents old sessions from continuing when a new one starts
+                let session_continue_flag = Arc::new(AtomicBool::new(true));
+                let session_flag_clone = session_continue_flag.clone();
+
+                // Mark that we're starting to type and not paused
+                is_typing.store(true, Ordering::SeqCst);
+                is_paused.store(false, Ordering::SeqCst);
+
+                // Save the text we're sending and set the target window
+                self.last_text = text.to_string();
+                if let Ok(mut target) = target_hwnd.lock() {
+                    *target = Some(hwnd);
+                }
+
+                cx.notify();
+
                 // Spawn background thread to avoid blocking UI
                 std::thread::spawn(move || {
-                    if let Err(e) = send_unicode_keystrokes(HWND(hwnd as _), &text, &config) {
+                    if let Err(e) = send_unicode_keystrokes(
+                        HWND(hwnd as _),
+                        &text,
+                        &config,
+                        &session_continue_flag,
+                        &is_paused,
+                        &target_hwnd,
+                    ) {
                         eprintln!("Error sending keystrokes: {}", e);
                     }
+
+                    // Only clear flags if this is still the active session
+                    // This prevents race conditions where an old session clears flags for a new session
+                    let latest_session_id = session_counter.load(Ordering::SeqCst);
+                    if current_session_id == latest_session_id {
+                        // Mark that we've stopped typing
+                        is_typing.store(false, Ordering::SeqCst);
+                        is_paused.store(false, Ordering::SeqCst);
+                        // Clear the target window
+                        if let Ok(mut target) = target_hwnd.lock() {
+                            *target = None;
+                        }
+                    }
                 });
+
+                // Store the session cancellation token so stop_typing can cancel it
+                self.current_session_token = Some(session_flag_clone);
             }
         }
+    }
+
+    fn stop_typing(&mut self, cx: &mut Context<Self>) {
+        // Cancel the current session
+        if let Some(ref token) = self.current_session_token {
+            token.store(false, Ordering::SeqCst);
+        }
+        self.current_session_token = None;
+        self.is_typing.store(false, Ordering::SeqCst);
+        self.is_paused.store(false, Ordering::SeqCst);
+        self.last_text.clear();
+        cx.notify();
+    }
+
+    fn check_text_changed(&mut self, cx: &mut Context<Self>) -> bool {
+        let current_text = self.input_state.read(cx).value();
+        let changed = current_text != self.last_text;
+
+        // If text changed while typing, stop the typing (cancels the active session)
+        if changed && self.is_typing.load(Ordering::SeqCst) {
+            self.stop_typing(cx);
+        }
+
+        changed
+    }
+
+    fn check_and_update_typing_speed(&mut self, cx: &mut Context<Self>) {
+        let current_wpm = self.words_per_minute_input.read(cx).value();
+
+        // Only update if the value has changed
+        if current_wpm != self.last_wpm_input {
+            self.last_wpm_input = current_wpm.to_string();
+            self.update_typing_speed(cx);
+        }
+    }
+
+    fn toggle_pause(&mut self, cx: &mut Context<Self>) {
+        let current = self.is_paused.load(Ordering::SeqCst);
+
+        // Check if we're in auto-pause state (window lost focus)
+        // In this case, pause_flag might be false even though UI shows "Resume"
+        let is_typing = self.is_typing.load(Ordering::SeqCst);
+        let target_has_focus = if let Some(ref window) = self.selected_window {
+            is_window_focused(HWND(window.hwnd as _))
+        } else {
+            false
+        };
+
+        // If we're typing and window doesn't have focus, we're auto-paused
+        // In this case, clicking Resume should just refocus (pause_flag stays false)
+        let is_auto_paused = is_typing && !target_has_focus;
+
+        if is_auto_paused {
+            // We're auto-paused due to focus loss
+            // Just refocus the window, don't touch pause_flag
+            if let Some(ref window) = self.selected_window {
+                let hwnd = HWND(window.hwnd as _);
+                std::thread::spawn(move || unsafe {
+                    use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+                    let _ = SetForegroundWindow(hwnd);
+                });
+            }
+        } else {
+            // Normal manual pause/resume - toggle the flag
+            self.is_paused.store(!current, Ordering::SeqCst);
+
+            // If resuming from manual pause, refocus the window
+            if current {
+                if let Some(ref window) = self.selected_window {
+                    let hwnd = HWND(window.hwnd as _);
+                    std::thread::spawn(move || unsafe {
+                        use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+                        let _ = SetForegroundWindow(hwnd);
+                    });
+                }
+            }
+        }
+
+        cx.notify();
     }
 
     fn handle_send_click(
@@ -102,7 +252,9 @@ impl WindowList {
         let value = self.words_per_minute_input.read(cx).value();
         if let Ok(words_per_minute) = value.parse::<f64>() {
             if words_per_minute > 0.0 && words_per_minute <= TypingConfig::max_words_per_minute() {
-                self.typing_config.words_per_minute = words_per_minute;
+                if let Ok(mut config) = self.typing_config.lock() {
+                    config.words_per_minute = words_per_minute;
+                }
                 cx.notify();
             }
         }
@@ -128,47 +280,41 @@ impl WindowList {
             )
     }
 
-    /// Render the text input and send button
-    fn render_text_input(&self, cx: &Context<Self>, has_selection: bool) -> impl IntoElement {
-        div()
-            .flex()
-            .gap_2()
-            .items_center()
-            .child(
-                div()
-                    .flex()
-                    .flex_1()
-                    .child(Input::new(&self.input_state).h(px(100.))),
-            )
-            .child(
-                Button::new("send")
-                    .primary()
-                    .label("Send")
-                    .disabled(!has_selection)
-                    .on_click(cx.listener(Self::handle_send_click)),
-            )
-    }
-
     /// Render the status messages (selection status and validation)
     fn render_status_messages(
         &self,
         selected_title: Option<String>,
         has_selection: bool,
+        is_paused: bool,
     ) -> impl IntoElement {
-        div().flex().flex_col().gap_1().child(
-            div()
-                .text_sm()
-                .text_color(if has_selection {
-                    rgb(0x66cc66)
-                } else {
-                    rgb(0xcc6666)
-                })
-                .child(if let Some(title) = selected_title {
-                    format!("✓ Selected: {}", title)
-                } else {
-                    "✗ No window selected. Click a window below to select it.".to_string()
-                }),
-        )
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(if has_selection {
+                        rgb(0x66cc66)
+                    } else {
+                        rgb(0xcc6666)
+                    })
+                    .child(if let Some(title) = selected_title {
+                        format!("✓ Selected: {}", title)
+                    } else {
+                        "✗ No window selected. Click a window below to select it.".to_string()
+                    }),
+            )
+            // Always show pause message area to prevent button shifting
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0xffcc66))
+                    .h(px(20.)) // Reserve fixed height
+                    .when(is_paused, |div| {
+                        div.child("⏸ Paused (click Resume to continue)")
+                    }),
+            )
     }
 
     /// Render the input section with controls
@@ -177,6 +323,8 @@ impl WindowList {
         cx: &Context<Self>,
         has_selection: bool,
         selected_title: Option<String>,
+        _is_typing: bool,
+        is_paused: bool,
     ) -> impl IntoElement {
         div()
             .flex()
@@ -194,9 +342,72 @@ impl WindowList {
                     .mb_2()
                     .child("Kakapo: Send Keystrokes"),
             )
+            // Textbox
+            .child(
+                div()
+                    .flex()
+                    .child(Input::new(&self.input_state).h(px(200.)).w_full()),
+            )
+            // Typing speed controls
             .child(self.render_typing_speed_controls(cx))
-            .child(self.render_text_input(cx, has_selection))
-            .child(self.render_status_messages(selected_title, has_selection))
+            // Status messages
+            .child(self.render_status_messages(selected_title, has_selection, is_paused))
+    }
+
+    /// Render just the buttons section (separated to place after window list)
+    fn render_buttons_standalone(
+        &self,
+        cx: &Context<Self>,
+        has_selection: bool,
+        is_typing: bool,
+        is_paused: bool,
+    ) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_4()
+            .bg(rgb(0x3d3d3d))
+            .rounded_lg()
+            .border_1()
+            .border_color(rgb(0x505050))
+            .child(self.render_buttons(cx, has_selection, is_typing, is_paused))
+    }
+
+    /// Render just the buttons section
+    fn render_buttons(
+        &self,
+        cx: &Context<Self>,
+        has_selection: bool,
+        is_typing: bool,
+        is_paused: bool,
+    ) -> impl IntoElement {
+        div()
+            .flex()
+            .gap_2()
+            .items_center()
+            .child(
+                Button::new("send")
+                    .primary()
+                    .label("Send")
+                    .disabled(!has_selection || is_typing)
+                    .on_click(cx.listener(Self::handle_send_click)),
+            )
+            .child(
+                Button::new("stop")
+                    .label("Stop")
+                    .disabled(!is_typing)
+                    .on_click(cx.listener(|view, _event, _window, cx| {
+                        view.stop_typing(cx);
+                    })),
+            )
+            .when(is_typing && is_paused, |div| {
+                div.child(Button::new("resume").label("Resume").on_click(cx.listener(
+                    |view, _event, _window, cx| {
+                        view.toggle_pause(cx);
+                    },
+                )))
+            })
     }
 
     /// Render a single window item in the list
@@ -288,6 +499,7 @@ impl WindowList {
             .border_color(rgb(0x505050))
             .flex_grow()
             .flex_shrink()
+            .min_h(px(200.)) // Ensure minimum height
             .overflow_hidden()
             .child(
                 div()
@@ -295,7 +507,7 @@ impl WindowList {
                     .text_color(rgb(0xffffff))
                     .mb_2()
                     .flex_shrink_0()
-                    .child("Window List:"),
+                    .child("Window List"),
             )
             .child(
                 div()
@@ -317,6 +529,12 @@ impl WindowList {
 
 impl Render for WindowList {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Check if text has changed while typing - if so, reset state
+        self.check_text_changed(cx);
+
+        // Check if typing speed has changed and update config
+        self.check_and_update_typing_speed(cx);
+
         // Try to update local cache from background thread without blocking
         // This avoids locking on every render frame
         if let Ok(cached) = self.cached_windows.try_lock() {
@@ -328,14 +546,46 @@ impl Render for WindowList {
         let selected_hwnd = self.selected_window.as_ref().map(|w| w.hwnd);
         let has_selection = self.selected_window.is_some();
         let selected_title = self.selected_window.as_ref().map(|w| w.title.clone());
+        let is_typing = self.is_typing.load(Ordering::SeqCst);
+        let mut is_paused = self.is_paused.load(Ordering::SeqCst);
+
+        // Requirement 2: Check if target window has lost focus while typing
+        // If so, treat it as paused for UI purposes (button shows "Resume")
+        // Only apply this if we have an active typing session (prevents flash when Stop is clicked)
+        let target_has_focus = if is_typing && has_selection && self.current_session_token.is_some()
+        {
+            if let Some(ref window) = self.selected_window {
+                use crate::window_manager::is_window_focused;
+                is_window_focused(HWND(window.hwnd as _))
+            } else {
+                true
+            }
+        } else {
+            true
+        };
+
+        // If target lost focus while typing, show as paused in UI
+        if is_typing && !target_has_focus && self.current_session_token.is_some() {
+            is_paused = true;
+        }
 
         v_flex()
             .gap_3()
             .bg(rgb(0x2d2d2d))
             .size_full()
             .p_4()
-            .child(self.render_input_section(cx, has_selection, selected_title))
+            // 1. Header, 2. Textbox, 3. Typing speed, 4. Messages (all in render_input_section)
+            .child(self.render_input_section(
+                cx,
+                has_selection,
+                selected_title,
+                is_typing,
+                is_paused,
+            ))
+            // 5. Window list
             .child(self.render_window_list_section(cx, windows, selected_hwnd))
+            // 6. Buttons
+            .child(self.render_buttons_standalone(cx, has_selection, is_typing, is_paused))
     }
 }
 

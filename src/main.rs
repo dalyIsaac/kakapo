@@ -18,11 +18,16 @@ fn main() {
         // Initialize gpui-component
         gpui_component::init(cx);
 
-        let bounds = Bounds::centered(None, size(px(700.0), px(700.0)), cx);
+        let bounds = Bounds::centered(None, size(px(800.0), px(700.0)), cx);
 
         let window_options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            window_min_size: Some(size(px(500.0), px(500.0))),
+            window_min_size: Some(size(px(800.0), px(500.0))), // Increased from 500 to 800
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some("Kakapo".into()),
+                appears_transparent: false,
+                traffic_light_position: None,
+            }),
             ..Default::default()
         };
 

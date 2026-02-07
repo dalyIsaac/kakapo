@@ -1,5 +1,8 @@
 use crate::rng::SimpleRng;
 use crate::typing::{calculate_keystroke_delay, TypingConfig};
+use crate::window_manager::is_window_focused;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, VIRTUAL_KEY,
@@ -61,12 +64,13 @@ fn send_enter_key() -> Result<(), String> {
 /// Sends a Unicode character using SendInput
 fn send_unicode_char(ch: char) -> Result<(), String> {
     unsafe {
-        let utf16_chars: Vec<u16> = ch.encode_utf16(&mut [0u16; 2]).to_vec();
+        let mut buf = [0u16; 2];
+        let utf16_chars = ch.encode_utf16(&mut buf);
 
-        for &code_unit in &utf16_chars {
+        for code_unit in utf16_chars {
             let inputs = vec![
-                create_key_input(code_unit, false, false), // Key down
-                create_key_input(code_unit, true, false),  // Key up
+                create_key_input(*code_unit, false, false), // Key down
+                create_key_input(*code_unit, true, false),  // Key up
             ];
 
             let sent = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
@@ -90,35 +94,140 @@ fn activate_window(hwnd: HWND) {
     }
 }
 
+fn get_target_hwnd(initial_hwnd: HWND, target_hwnd: &Arc<Mutex<Option<isize>>>) -> HWND {
+    if let Ok(target) = target_hwnd.lock() {
+        HWND(target.unwrap_or(initial_hwnd.0) as _)
+    } else {
+        initial_hwnd
+    }
+}
+
+fn should_pause(pause_flag: &Arc<AtomicBool>, hwnd: HWND) -> bool {
+    pause_flag.load(Ordering::SeqCst) || !is_window_focused(hwnd)
+}
+
+fn wait_while_paused(
+    initial_hwnd: HWND,
+    current_hwnd: HWND,
+    continue_flag: &Arc<AtomicBool>,
+    pause_flag: &Arc<AtomicBool>,
+    target_hwnd: &Arc<Mutex<Option<isize>>>,
+) -> Result<(bool, HWND), String> {
+    let mut was_paused = false;
+    let mut current_hwnd = current_hwnd;
+
+    while should_pause(pause_flag, current_hwnd) {
+        was_paused = true;
+
+        if !continue_flag.load(Ordering::SeqCst) {
+            return Ok((was_paused, current_hwnd));
+        }
+
+        let new_hwnd = get_target_hwnd(initial_hwnd, target_hwnd);
+        if new_hwnd.0 != current_hwnd.0 {
+            // Target window changed while paused; update and return so caller can react
+            current_hwnd = new_hwnd;
+            break;
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    Ok((was_paused, current_hwnd))
+}
+
+fn send_char_or_newline(
+    ch: char,
+    chars: &mut std::iter::Peekable<std::str::Chars>,
+) -> Result<(), String> {
+    if ch == '\r' {
+        // Skip \r if it precedes \n (Windows-style CRLF)
+        if chars.peek() == Some(&'\n') {
+            return Ok(()); // Skip the \r, let the \n be processed next
+        }
+        // Standalone \r: send as literal character
+        send_unicode_char(ch)
+    } else if ch == '\n' {
+        send_enter_key()
+    } else {
+        send_unicode_char(ch)
+    }
+}
+
 /// Sends Unicode keystrokes to a window using SendInput.
 /// This method works with virtual machines and remote desktop applications
 /// like Amazon Workspaces and Azure Virtual Desktop because it uses
 /// KEYEVENTF_UNICODE which injects keystrokes at the lowest level.
 ///
+/// The window is brought to the foreground before sending input.
 /// Newlines are converted to VK_RETURN key events for proper multiline support.
+///
+/// The `continue_flag` parameter should be set to `true` to continue typing.
+/// Setting it to `false` will cause the operation to stop early.
+///
+/// The `pause_flag` parameter is checked periodically. When `true`, typing pauses
+/// until it becomes `false` again. Additionally, typing automatically pauses
+/// if the target window loses focus.
 ///
 /// Reference: https://github.com/keepassxreboot/keepassxc
 pub fn send_unicode_keystrokes(
-    hwnd: HWND,
+    initial_hwnd: HWND,
     text: &str,
-    config: &TypingConfig,
+    config: &Arc<Mutex<TypingConfig>>,
+    continue_flag: &Arc<AtomicBool>,
+    pause_flag: &Arc<AtomicBool>,
+    target_hwnd: &Arc<Mutex<Option<isize>>>,
 ) -> Result<(), String> {
-    activate_window(hwnd);
-
     let rng = SimpleRng::new();
     let total_chars = text.chars().count();
 
     // Process each character, converting newlines to Enter key events
-    for (char_index, ch) in text.chars().enumerate() {
-        if ch == '\n' || ch == '\r' {
-            send_enter_key()?;
-        } else {
-            send_unicode_char(ch)?;
+    let mut chars = text.chars().peekable();
+    let mut is_first_char = true;
+
+    let mut char_index = 0;
+    while let Some(ch) = chars.next() {
+        // Check if we should continue typing
+        if !continue_flag.load(Ordering::SeqCst) {
+            return Ok(());
         }
 
+        // Get the current target window (may have changed during pause)
+        let mut hwnd = get_target_hwnd(initial_hwnd, target_hwnd);
+
+        // On first character, activate window before checking focus
+        // This ensures Send starts immediately without requiring Resume
+        if is_first_char {
+            activate_window(hwnd);
+            is_first_char = false;
+        }
+
+        // Check if we should pause (manually paused or focus lost)
+        let (was_paused, updated_hwnd) =
+            wait_while_paused(initial_hwnd, hwnd, continue_flag, pause_flag, target_hwnd)?;
+
+        // Update hwnd to the latest target (may have changed during pause)
+        hwnd = updated_hwnd;
+
+        // If we were paused (either manually or due to focus loss), reactivate window
+        if was_paused {
+            activate_window(hwnd);
+        }
+
+        // Handle newlines (skip \r when it precedes \n for Windows-style CRLF)
+        send_char_or_newline(ch, &mut chars)?;
+
         // Variable delay between characters based on typing configuration
-        let delay = calculate_keystroke_delay(config, char_index, total_chars, &rng);
+        // Read config dynamically to allow changes during typing
+        let delay = if let Ok(config_guard) = config.lock() {
+            calculate_keystroke_delay(&config_guard, char_index, total_chars, &rng)
+        } else {
+            // Fallback to default if lock fails
+            std::time::Duration::from_millis(50)
+        };
         std::thread::sleep(delay);
+
+        char_index += 1;
     }
 
     Ok(())
