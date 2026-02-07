@@ -107,13 +107,6 @@ impl WindowList {
         cx.notify();
     }
 
-    fn get_invalid_chars(&self, cx: &App) -> Vec<char> {
-        let _text = self.input_state.read(cx).value();
-        // For now, all characters can be sent via Unicode SendInput
-        // In the future, we might add validation logic here
-        vec![]
-    }
-
     /// Render the typing speed configuration controls
     fn render_typing_speed_controls(
         &self,
@@ -150,12 +143,7 @@ impl WindowList {
     }
 
     /// Render the text input and send button
-    fn render_text_input(
-        &self,
-        cx: &Context<Self>,
-        has_selection: bool,
-        text_empty: bool,
-    ) -> impl IntoElement {
+    fn render_text_input(&self, cx: &Context<Self>, has_selection: bool) -> impl IntoElement {
         div()
             .flex()
             .gap_2()
@@ -170,7 +158,7 @@ impl WindowList {
                 Button::new("send")
                     .primary()
                     .label("Send")
-                    .disabled(!has_selection || text_empty)
+                    .disabled(!has_selection)
                     .on_click(cx.listener(Self::handle_send_click)),
             )
     }
@@ -180,41 +168,21 @@ impl WindowList {
         &self,
         selected_title: Option<String>,
         has_selection: bool,
-        invalid_chars: Vec<char>,
-        text_empty: bool,
     ) -> impl IntoElement {
-        div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(if has_selection {
-                        rgb(0x66cc66)
-                    } else {
-                        rgb(0xcc6666)
-                    })
-                    .child(if let Some(title) = selected_title {
-                        format!("✓ Selected: {}", title)
-                    } else {
-                        "✗ No window selected. Click a window below to select it.".to_string()
-                    }),
-            )
-            .when(!invalid_chars.is_empty(), |this| {
-                this.child(div().text_sm().text_color(rgb(0xff6666)).child(format!(
-                    "⚠ Invalid characters that cannot be sent: {:?}",
-                    invalid_chars
-                )))
-            })
-            .when(invalid_chars.is_empty() && !text_empty, |this| {
-                this.child(
-                    div()
-                        .text_sm()
-                        .text_color(rgb(0x66cc66))
-                        .child("✓ All characters can be sent"),
-                )
-            })
+        div().flex().flex_col().gap_1().child(
+            div()
+                .text_sm()
+                .text_color(if has_selection {
+                    rgb(0x66cc66)
+                } else {
+                    rgb(0xcc6666)
+                })
+                .child(if let Some(title) = selected_title {
+                    format!("✓ Selected: {}", title)
+                } else {
+                    "✗ No window selected. Click a window below to select it.".to_string()
+                }),
+        )
     }
 
     /// Render the input section with controls
@@ -224,8 +192,6 @@ impl WindowList {
         jitter_enabled: bool,
         has_selection: bool,
         selected_title: Option<String>,
-        invalid_chars: Vec<char>,
-        text_empty: bool,
     ) -> impl IntoElement {
         div()
             .flex()
@@ -244,13 +210,8 @@ impl WindowList {
                     .child("Kakapo: Send Keystrokes"),
             )
             .child(self.render_typing_speed_controls(cx, jitter_enabled))
-            .child(self.render_text_input(cx, has_selection, text_empty))
-            .child(self.render_status_messages(
-                selected_title,
-                has_selection,
-                invalid_chars,
-                text_empty,
-            ))
+            .child(self.render_text_input(cx, has_selection))
+            .child(self.render_status_messages(selected_title, has_selection))
     }
 
     /// Render a single window item in the list
@@ -378,9 +339,6 @@ impl Render for WindowList {
         let selected_hwnd = self.selected_window.as_ref().map(|w| w.hwnd);
         let has_selection = self.selected_window.is_some();
         let selected_title = self.selected_window.as_ref().map(|w| w.title.clone());
-        let invalid_chars = self.get_invalid_chars(cx);
-        let text = self.input_state.read(cx).value();
-        let text_empty = text.is_empty();
         let jitter_enabled = self.typing_config.enable_jitter;
 
         v_flex()
@@ -388,14 +346,7 @@ impl Render for WindowList {
             .bg(rgb(0x2d2d2d))
             .size_full()
             .p_4()
-            .child(self.render_input_section(
-                cx,
-                jitter_enabled,
-                has_selection,
-                selected_title,
-                invalid_chars,
-                text_empty,
-            ))
+            .child(self.render_input_section(cx, jitter_enabled, has_selection, selected_title))
             .child(self.render_window_list_section(cx, windows, selected_hwnd))
     }
 }

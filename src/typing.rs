@@ -42,10 +42,8 @@ pub fn calculate_keystroke_delay(
     rng: &SimpleRng,
 ) -> Duration {
     // Validate and clamp words_per_minute to avoid inf/negative/NaN delays
-    let words_per_minute = config.words_per_minute
-        .max(1.0) // Minimum 1 WPM
-        .min(MAX_WORDS_PER_MINUTE); // Maximum as defined
-    
+    let words_per_minute = config.words_per_minute.clamp(1.0, MAX_WORDS_PER_MINUTE);
+
     // Convert words per minute to characters per minute
     let chars_per_minute = words_per_minute * CHARS_PER_WORD;
 
