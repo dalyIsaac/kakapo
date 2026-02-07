@@ -2,7 +2,7 @@
 
 ## Changes Made
 
-### 1. Replaced custom div-based text input with gpui's Input component
+### 1. Replaced custom div-based text input with a TextInput component based on gpui's Input example
 
 **Before**: 
 - Simple div with manual keyboard event handling
@@ -11,7 +11,7 @@
 
 **After**:
 - Full-featured TextInput component based on gpui's Input example
-- Proper text cursor with blinking animation
+- Proper text cursor rendering
 - Text selection with mouse dragging and keyboard shortcuts
 - Full keyboard navigation (arrows, home, end, etc.)
 - Cut/Copy/Paste support (Cmd+C, Cmd+V, Cmd+X)

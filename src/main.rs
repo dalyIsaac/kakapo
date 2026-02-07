@@ -71,8 +71,11 @@ fn send_unicode_keystrokes(hwnd: HWND, text: &str) {
         // Small delay to let the window activation complete
         std::thread::sleep(std::time::Duration::from_millis(100));
 
-        // Send each character as a Unicode keystroke
-        for ch in text.chars() {
+        // Convert to UTF-16 to properly handle emoji and non-BMP characters (surrogate pairs)
+        let utf16_chars: Vec<u16> = text.encode_utf16().collect();
+        
+        // Send each UTF-16 code unit as a keystroke
+        for &code_unit in &utf16_chars {
             let mut inputs = Vec::new();
 
             // Key down event
@@ -80,7 +83,7 @@ fn send_unicode_keystrokes(hwnd: HWND, text: &str) {
             input_down.r#type = INPUT_KEYBOARD;
             input_down.Anonymous.ki = KEYBDINPUT {
                 wVk: Default::default(),
-                wScan: ch as u16,
+                wScan: code_unit,
                 dwFlags: KEYEVENTF_UNICODE,
                 time: 0,
                 dwExtraInfo: 0,
@@ -92,7 +95,7 @@ fn send_unicode_keystrokes(hwnd: HWND, text: &str) {
             input_up.r#type = INPUT_KEYBOARD;
             input_up.Anonymous.ki = KEYBDINPUT {
                 wVk: Default::default(),
-                wScan: ch as u16,
+                wScan: code_unit,
                 dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
                 time: 0,
                 dwExtraInfo: 0,
@@ -102,7 +105,7 @@ fn send_unicode_keystrokes(hwnd: HWND, text: &str) {
             // Send the input events
             let _ = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
 
-            // Small delay between characters for reliability
+            // Small delay between code units for reliability
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
@@ -153,13 +156,6 @@ impl TextInput {
             last_bounds: None,
             is_selecting: false,
         }
-    }
-
-    fn reset(&mut self) {
-        self.content = "".into();
-        self.selected_range = 0..0;
-        self.selection_reversed = false;
-        self.marked_range = None;
     }
 
     fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {
@@ -360,7 +356,7 @@ impl TextInput {
         &mut self,
         range_utf16: Option<Range<usize>>,
         new_text: &str,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let range = range_utf16
@@ -725,6 +721,7 @@ struct WindowList {
     selected_window: Option<WindowInfo>,
     text_input: Entity<TextInput>,
     focus_handle: FocusHandle,
+    cached_windows: Vec<WindowInfo>,
 }
 
 impl WindowList {
@@ -734,6 +731,7 @@ impl WindowList {
             selected_window: None,
             text_input,
             focus_handle: cx.focus_handle(),
+            cached_windows: get_system_windows(),
         }
     }
 
@@ -746,7 +744,11 @@ impl WindowList {
         if let Some(ref window) = self.selected_window {
             let text = self.text_input.read(cx).content.to_string();
             if !text.is_empty() {
-                send_unicode_keystrokes(HWND(window.hwnd as _), &text);
+                let hwnd = window.hwnd;
+                // Spawn background thread to avoid blocking UI
+                std::thread::spawn(move || {
+                    send_unicode_keystrokes(HWND(hwnd as _), &text);
+                });
             }
         }
     }
@@ -761,7 +763,7 @@ impl WindowList {
     }
 
     fn get_invalid_chars(&self, cx: &App) -> Vec<char> {
-        let text = self.text_input.read(cx).content.to_string();
+        let _text = self.text_input.read(cx).content.to_string();
         // For now, all characters can be sent via Unicode SendInput
         // In the future, we might add validation logic here
         vec![]
@@ -770,7 +772,7 @@ impl WindowList {
 
 impl Render for WindowList {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let windows = get_system_windows();
+        let windows = &self.cached_windows;
         let selected_hwnd = self.selected_window.as_ref().map(|w| w.hwnd);
         let has_selection = self.selected_window.is_some();
         let selected_title = self.selected_window.as_ref().map(|w| w.title.clone());

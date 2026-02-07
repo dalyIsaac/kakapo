@@ -22,12 +22,7 @@ Kakapo uses the Windows `SendInput` API with the `KEYEVENTF_UNICODE` flag to sen
 1. **Launch the application**: Run `cargo run --release` or execute the built binary
 2. **Select a target window**: Click on any window in the list to select it
 3. **Type your text**: Enter the text you want to send in the input field
-4. **Send keystrokes**: Click the "Send" button or press Enter
-
-### Keyboard Shortcuts
-
-- **Enter**: Send keystrokes to the selected window
-- **Backspace**: Delete the last character from the input field
+4. **Send keystrokes**: Click the "Send" button
 
 ## Building
 
@@ -79,15 +74,6 @@ The `KEYEVENTF_UNICODE` flag tells Windows to inject keystrokes at the lowest le
 - **Windows Only**: This application uses Windows-specific APIs and will not run on other operating systems
 - **Foreground Focus**: The target window must be brought to the foreground to receive keystrokes
 - **No Special Keys**: Currently only supports sending Unicode characters (letters, numbers, symbols)
-
-## Future Enhancements
-
-Potential improvements:
-- Support for special keys (Tab, Arrow keys, etc.)
-- Keyboard shortcut configuration
-- Window filtering and search
-- Save/load favorite windows
-- Multi-line text input
 
 ## License
 
