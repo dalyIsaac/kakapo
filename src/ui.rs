@@ -256,7 +256,7 @@ impl WindowList {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgb(0x333333))
+                            .text_color(rgb(0xcccccc))
                             .child("Newline Mode:"),
                     )
                     .child(

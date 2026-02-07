@@ -25,7 +25,7 @@ impl Default for TypingConfig {
         Self {
             words_per_minute: DEFAULT_WORDS_PER_MINUTE,
             enable_jitter: true,
-            use_windows_newlines: false,  // Default to Unix-style \n
+            use_windows_newlines: false, // Default to Unix-style \n
         }
     }
 }

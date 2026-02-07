@@ -22,7 +22,7 @@ fn main() {
 
         let window_options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            window_min_size: Some(size(px(800.0), px(500.0))),  // Increased from 500 to 800
+            window_min_size: Some(size(px(800.0), px(500.0))), // Increased from 500 to 800
             titlebar: Some(gpui::TitlebarOptions {
                 title: Some("Kakapo".into()),
                 appears_transparent: false,

@@ -124,7 +124,7 @@ pub fn send_unicode_keystrokes(
     // Process each character, converting newlines to Enter key events
     let mut chars = text.chars().peekable();
     let mut char_index = 0;
-    
+
     while let Some(ch) = chars.next() {
         // Check if we should continue typing
         if !continue_flag.load(Ordering::SeqCst) {
@@ -177,7 +177,7 @@ pub fn send_unicode_keystrokes(
             std::time::Duration::from_millis(50)
         };
         std::thread::sleep(delay);
-        
+
         char_index += 1;
     }
 
