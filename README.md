@@ -10,7 +10,7 @@ A Windows application for viewing system windows and sending keystrokes to them.
 - **Virtual Keystroke Support**: Send keystrokes that work with virtual machines and remote desktop applications
 - **Typing Speed Control**: Configure typing speed in characters per minute (default: 300 CPM, ~60 WPM)
 - **Natural Typing Variability**: Enable/disable jitter for more realistic, human-like typing patterns with "spurt" behavior
-- **Pause/Resume**: Manually pause and resume typing with the Pause/Resume button
+- **Resume**: Pause automatically when the target window loses focus and resume when focus returns
 - **Auto-Pause on Focus Loss**: Typing automatically pauses when the target window loses focus and resumes when focus returns
 - **Stop**: Cancel typing at any time with the Stop button
 
