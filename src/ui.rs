@@ -272,7 +272,7 @@ impl WindowList {
         cx: &Context<Self>,
         has_selection: bool,
         selected_title: Option<String>,
-        is_typing: bool,
+        _is_typing: bool,
         is_paused: bool,
     ) -> impl IntoElement {
         div()
@@ -291,17 +291,35 @@ impl WindowList {
                     .mb_2()
                     .child("Kakapo: Send Keystrokes"),
             )
-            // Textbox first, as requested
+            // Textbox
             .child(
                 div()
                     .flex()
                     .child(Input::new(&self.input_state).h(px(100.)).w_full()),
             )
-            // Then typing speed controls
+            // Typing speed controls
             .child(self.render_typing_speed_controls(cx))
-            // Then status messages
+            // Status messages
             .child(self.render_status_messages(selected_title, has_selection, is_paused))
-            // Finally buttons
+    }
+    
+    /// Render just the buttons section (separated to place after window list)
+    fn render_buttons_standalone(
+        &self,
+        cx: &Context<Self>,
+        has_selection: bool,
+        is_typing: bool,
+        is_paused: bool,
+    ) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_4()
+            .bg(rgb(0x3d3d3d))
+            .rounded_lg()
+            .border_1()
+            .border_color(rgb(0x505050))
             .child(self.render_buttons(cx, has_selection, is_typing, is_paused))
     }
     
@@ -504,7 +522,7 @@ impl Render for WindowList {
             .bg(rgb(0x2d2d2d))
             .size_full()
             .p_4()
-            .child(self.render_window_list_section(cx, windows, selected_hwnd))
+            // 1. Header, 2. Textbox, 3. Typing speed, 4. Messages (all in render_input_section)
             .child(self.render_input_section(
                 cx,
                 has_selection,
@@ -512,6 +530,10 @@ impl Render for WindowList {
                 is_typing,
                 is_paused,
             ))
+            // 5. Window list
+            .child(self.render_window_list_section(cx, windows, selected_hwnd))
+            // 6. Buttons
+            .child(self.render_buttons_standalone(cx, has_selection, is_typing, is_paused))
     }
 }
 
