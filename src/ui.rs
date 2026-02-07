@@ -22,6 +22,7 @@ pub struct WindowList {
     words_per_minute_input: Entity<InputState>,
     is_typing: Arc<AtomicBool>,
     is_paused: Arc<AtomicBool>,
+    last_text: String,
 }
 
 impl WindowList {
@@ -64,6 +65,7 @@ impl WindowList {
             words_per_minute_input,
             is_typing: Arc::new(AtomicBool::new(false)),
             is_paused: Arc::new(AtomicBool::new(false)),
+            last_text: String::new(),
         }
     }
 
@@ -88,6 +90,10 @@ impl WindowList {
                 // Mark that we're starting to type and not paused
                 is_typing.store(true, Ordering::SeqCst);
                 is_paused.store(false, Ordering::SeqCst);
+                
+                // Save the text we're sending
+                self.last_text = text.to_string();
+                
                 cx.notify();
 
                 // Spawn background thread to avoid blocking UI
@@ -112,17 +118,46 @@ impl WindowList {
     fn stop_typing(&mut self, cx: &mut Context<Self>) {
         self.is_typing.store(false, Ordering::SeqCst);
         self.is_paused.store(false, Ordering::SeqCst);
+        self.last_text.clear();
         cx.notify();
+    }
+    
+    fn check_text_changed(&mut self, cx: &mut Context<Self>) -> bool {
+        let current_text = self.input_state.read(cx).value();
+        let changed = current_text != self.last_text;
+        
+        // If text changed while typing, stop the typing
+        if changed && self.is_typing.load(Ordering::SeqCst) {
+            self.is_typing.store(false, Ordering::SeqCst);
+            self.is_paused.store(false, Ordering::SeqCst);
+            self.last_text.clear();
+        }
+        
+        changed
     }
 
     fn toggle_pause(&mut self, cx: &mut Context<Self>) {
+        let is_typing = self.is_typing.load(Ordering::SeqCst);
+        
+        // Check if window has lost focus
+        let target_has_focus = if is_typing {
+            if let Some(ref window) = self.selected_window {
+                use crate::window_manager::is_window_focused;
+                is_window_focused(HWND(window.hwnd as _))
+            } else {
+                true
+            }
+        } else {
+            true
+        };
+        
         let current = self.is_paused.load(Ordering::SeqCst);
-        let new_state = !current;
-        self.is_paused.store(new_state, Ordering::SeqCst);
-
-        // Requirement 1: When resuming (going from paused to not paused), refocus the target window
-        if !new_state && current {
-            // We're resuming from pause
+        
+        // If focus was lost and we're "resuming", clear the pause flag and refocus
+        if !target_has_focus || current {
+            // Clear pause flag and refocus window
+            self.is_paused.store(false, Ordering::SeqCst);
+            
             if let Some(ref window) = self.selected_window {
                 let hwnd = HWND(window.hwnd as _);
                 // Refocus the window in a separate thread to avoid blocking UI
@@ -131,6 +166,9 @@ impl WindowList {
                     let _ = SetForegroundWindow(hwnd);
                 });
             }
+        } else {
+            // Toggle pause state normally
+            self.is_paused.store(!current, Ordering::SeqCst);
         }
 
         cx.notify();
@@ -176,49 +214,6 @@ impl WindowList {
                 div()
                     .w(px(100.))
                     .child(Input::new(&self.words_per_minute_input)),
-            )
-    }
-
-    /// Render the text input and send/pause/stop buttons
-    fn render_text_input(
-        &self,
-        cx: &Context<Self>,
-        has_selection: bool,
-        is_typing: bool,
-        is_paused: bool,
-    ) -> impl IntoElement {
-        div()
-            .flex()
-            .gap_2()
-            .items_center()
-            .child(
-                div()
-                    .flex()
-                    .flex_1()
-                    .child(Input::new(&self.input_state).h(px(100.))),
-            )
-            .child(
-                Button::new("send")
-                    .primary()
-                    .label("Send")
-                    .disabled(!has_selection || is_typing)
-                    .on_click(cx.listener(Self::handle_send_click)),
-            )
-            .child(
-                Button::new("pause")
-                    .label(if is_paused { "Resume" } else { "Pause" })
-                    .disabled(!is_typing)
-                    .on_click(cx.listener(|view, _event, _window, cx| {
-                        view.toggle_pause(cx);
-                    })),
-            )
-            .child(
-                Button::new("stop")
-                    .label("Stop")
-                    .disabled(!is_typing)
-                    .on_click(cx.listener(|view, _event, _window, cx| {
-                        view.stop_typing(cx);
-                    })),
             )
     }
 
@@ -282,9 +277,55 @@ impl WindowList {
                     .mb_2()
                     .child("Kakapo: Send Keystrokes"),
             )
+            // Textbox first, as requested
+            .child(
+                div()
+                    .flex()
+                    .child(Input::new(&self.input_state).h(px(100.)).w_full()),
+            )
+            // Then typing speed controls
             .child(self.render_typing_speed_controls(cx))
-            .child(self.render_text_input(cx, has_selection, is_typing, is_paused))
+            // Then status messages
             .child(self.render_status_messages(selected_title, has_selection, is_paused))
+            // Finally buttons
+            .child(self.render_buttons(cx, has_selection, is_typing, is_paused))
+    }
+    
+    /// Render just the buttons section
+    fn render_buttons(
+        &self,
+        cx: &Context<Self>,
+        has_selection: bool,
+        is_typing: bool,
+        is_paused: bool,
+    ) -> impl IntoElement {
+        div()
+            .flex()
+            .gap_2()
+            .items_center()
+            .child(
+                Button::new("send")
+                    .primary()
+                    .label("Send")
+                    .disabled(!has_selection || is_typing)
+                    .on_click(cx.listener(Self::handle_send_click)),
+            )
+            .child(
+                Button::new("pause")
+                    .label(if is_paused { "Resume" } else { "Pause" })
+                    .disabled(!is_typing)
+                    .on_click(cx.listener(|view, _event, _window, cx| {
+                        view.toggle_pause(cx);
+                    })),
+            )
+            .child(
+                Button::new("stop")
+                    .label("Stop")
+                    .disabled(!is_typing)
+                    .on_click(cx.listener(|view, _event, _window, cx| {
+                        view.stop_typing(cx);
+                    })),
+            )
     }
 
     /// Render a single window item in the list
@@ -383,7 +424,7 @@ impl WindowList {
                     .text_color(rgb(0xffffff))
                     .mb_2()
                     .flex_shrink_0()
-                    .child("Window List:"),
+                    .child("Window List"),
             )
             .child(
                 div()
@@ -405,6 +446,9 @@ impl WindowList {
 
 impl Render for WindowList {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Check if text has changed while typing - if so, reset state
+        self.check_text_changed(cx);
+        
         // Try to update local cache from background thread without blocking
         // This avoids locking on every render frame
         if let Ok(cached) = self.cached_windows.try_lock() {
