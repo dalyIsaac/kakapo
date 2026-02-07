@@ -124,6 +124,7 @@ pub fn send_unicode_keystrokes(
     // Process each character, converting newlines to Enter key events
     let mut chars = text.chars().peekable();
     let mut char_index = 0;
+    let mut is_first_char = true;
 
     while let Some(ch) = chars.next() {
         // Check if we should continue typing
@@ -137,6 +138,13 @@ pub fn send_unicode_keystrokes(
         } else {
             initial_hwnd
         };
+
+        // On first character, activate window before checking focus
+        // This ensures Send starts immediately without requiring Resume
+        if is_first_char {
+            activate_window(hwnd);
+            is_first_char = false;
+        }
 
         // Check if we should pause (manually paused or focus lost)
         let mut was_paused = false;
