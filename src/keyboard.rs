@@ -165,20 +165,34 @@ pub fn send_unicode_keystrokes(
             activate_window(hwnd);
         }
 
-        // Handle newlines based on current mode
-        if ch == '\r' {
-            // If we see \r, check if it's followed by \n
-            if chars.peek() == Some(&'\n') {
-                chars.next(); // Consume the \n
-            }
-            send_enter_key()?;
-        } else if ch == '\n' {
-            // Check if we should send \r\n (Windows mode) or just \n (Unix mode)
-            // For sending, we always send Enter once regardless of mode
-            // The mode affects how we interpret the input text
-            send_enter_key()?;
+        // Read newline mode from config (fallback to Windows-style if lock fails)
+        let use_windows_newlines = if let Ok(config_guard) = config.lock() {
+            config_guard.use_windows_newlines
         } else {
-            send_unicode_char(ch)?;
+            true
+        };
+
+        // Handle newlines based on current mode
+        if use_windows_newlines {
+            // Windows-style: treat \r, \n, and \r\n as a single logical Enter
+            if ch == '\r' {
+                // If we see \r, check if it's followed by \n and consume it
+                if chars.peek() == Some(&'\n') {
+                    chars.next(); // Consume the \n
+                }
+                send_enter_key()?;
+            } else if ch == '\n' {
+                send_enter_key()?;
+            } else {
+                send_unicode_char(ch)?;
+            }
+        } else {
+            // Unix-style: only \n is treated as a newline; \r is sent literally
+            if ch == '\n' {
+                send_enter_key()?;
+            } else {
+                send_unicode_char(ch)?;
+            }
         }
 
         // Variable delay between characters based on typing configuration
