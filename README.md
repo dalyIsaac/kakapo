@@ -68,6 +68,7 @@ The keystroke sending functionality is inspired by [KeePassXC's approach](https:
 2. **SendInput with KEYEVENTF_UNICODE**: Sends each character as a Unicode keystroke
 3. **Key Events**: Each character is sent as a key-down followed by key-up event
 4. **Timing**: Small delays between characters ensure reliability
+5. **Stop Functionality**: Typing can be cancelled mid-operation using the Stop button
 
 ### Why KEYEVENTF_UNICODE?
 
@@ -85,8 +86,8 @@ The `KEYEVENTF_UNICODE` flag tells Windows to inject keystrokes at the lowest le
 ## Limitations
 
 - **Windows Only**: This application uses Windows-specific APIs and will not run on other operating systems
-- **Foreground Focus**: The target window must be brought to the foreground to receive keystrokes
-- **No Special Keys**: Currently only supports sending Unicode characters (letters, numbers, symbols)
+- **Foreground Focus**: The target window is brought to the foreground to receive keystrokes
+- **No Special Keys**: Currently only supports sending Unicode characters (letters, numbers, symbols) and Enter key
 
 ## CI/CD
 
