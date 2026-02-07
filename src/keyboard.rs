@@ -94,6 +94,53 @@ fn activate_window(hwnd: HWND) {
     }
 }
 
+fn get_target_hwnd(initial_hwnd: HWND, target_hwnd: &Arc<Mutex<Option<isize>>>) -> HWND {
+    if let Ok(target) = target_hwnd.lock() {
+        HWND(target.unwrap_or(initial_hwnd.0) as _)
+    } else {
+        initial_hwnd
+    }
+}
+
+fn should_pause(pause_flag: &Arc<AtomicBool>, hwnd: HWND) -> bool {
+    pause_flag.load(Ordering::SeqCst) || !is_window_focused(hwnd)
+}
+
+fn wait_while_paused(
+    initial_hwnd: HWND,
+    current_hwnd: HWND,
+    continue_flag: &Arc<AtomicBool>,
+    pause_flag: &Arc<AtomicBool>,
+    target_hwnd: &Arc<Mutex<Option<isize>>>,
+) -> Result<bool, String> {
+    let mut was_paused = false;
+
+    while should_pause(pause_flag, current_hwnd) {
+        was_paused = true;
+
+        if !continue_flag.load(Ordering::SeqCst) {
+            return Ok(was_paused);
+        }
+
+        let new_hwnd = get_target_hwnd(initial_hwnd, target_hwnd);
+        if new_hwnd.0 != current_hwnd.0 {
+            break;
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    Ok(was_paused)
+}
+
+fn send_char_or_newline(ch: char) -> Result<(), String> {
+    if ch == '\n' {
+        send_enter_key()
+    } else {
+        send_unicode_char(ch)
+    }
+}
+
 /// Sends Unicode keystrokes to a window using SendInput.
 /// This method works with virtual machines and remote desktop applications
 /// like Amazon Workspaces and Azure Virtual Desktop because it uses
@@ -132,11 +179,7 @@ pub fn send_unicode_keystrokes(
         }
 
         // Get the current target window (may have changed during pause)
-        let hwnd = if let Ok(target) = target_hwnd.lock() {
-            HWND(target.unwrap_or(initial_hwnd.0) as _)
-        } else {
-            initial_hwnd
-        };
+        let hwnd = get_target_hwnd(initial_hwnd, target_hwnd);
 
         // On first character, activate window before checking focus
         // This ensures Send starts immediately without requiring Resume
@@ -146,31 +189,13 @@ pub fn send_unicode_keystrokes(
         }
 
         // Check if we should pause (manually paused or focus lost)
-        let mut was_paused = false;
-        while pause_flag.load(Ordering::SeqCst) || !is_window_focused(hwnd) {
-            was_paused = true;
-
-            // Check if we should stop while paused
-            if !continue_flag.load(Ordering::SeqCst) {
-                return Ok(());
-            }
-
-            // Re-read target window in case it changed during pause
-            let new_hwnd = if let Ok(target) = target_hwnd.lock() {
-                HWND(target.unwrap_or(initial_hwnd.0) as _)
-            } else {
-                initial_hwnd
-            };
-
-            // If target window changed, update hwnd and break out of pause
-            if new_hwnd.0 != hwnd.0 {
-                // Target changed, will reactivate the new target after pause loop
-                break;
-            }
-
-            // Sleep briefly before checking again
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
+        let was_paused = wait_while_paused(
+            initial_hwnd,
+            hwnd,
+            continue_flag,
+            pause_flag,
+            target_hwnd,
+        )?;
 
         // If we were paused (either manually or due to focus loss), reactivate window
         if was_paused {
@@ -178,11 +203,7 @@ pub fn send_unicode_keystrokes(
         }
 
         // Handle newlines (Unix-style: only \n is treated as a newline)
-        if ch == '\n' {
-            send_enter_key()?;
-        } else {
-            send_unicode_char(ch)?;
-        }
+        send_char_or_newline(ch)?;
 
         // Variable delay between characters based on typing configuration
         // Read config dynamically to allow changes during typing
