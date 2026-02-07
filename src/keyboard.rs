@@ -1,5 +1,6 @@
 use crate::rng::SimpleRng;
 use crate::typing::{calculate_keystroke_delay, TypingConfig};
+use crate::window_manager::is_window_focused;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use windows::Win32::Foundation::HWND;
@@ -103,6 +104,10 @@ fn activate_window(hwnd: HWND) {
 /// 
 /// The `continue_flag` parameter should be set to `true` to continue typing.
 /// Setting it to `false` will cause the operation to stop early.
+/// 
+/// The `pause_flag` parameter is checked periodically. When `true`, typing pauses
+/// until it becomes `false` again. Additionally, typing automatically pauses
+/// if the target window loses focus.
 ///
 /// Reference: https://github.com/keepassxreboot/keepassxc
 pub fn send_unicode_keystrokes(
@@ -110,6 +115,7 @@ pub fn send_unicode_keystrokes(
     text: &str,
     config: &TypingConfig,
     continue_flag: &Arc<AtomicBool>,
+    pause_flag: &Arc<AtomicBool>,
 ) -> Result<(), String> {
     activate_window(hwnd);
 
@@ -121,6 +127,24 @@ pub fn send_unicode_keystrokes(
         // Check if we should continue typing
         if !continue_flag.load(Ordering::SeqCst) {
             return Ok(());
+        }
+        
+        // Check if we should pause (manually or due to focus loss)
+        while pause_flag.load(Ordering::SeqCst) || !is_window_focused(hwnd) {
+            // If paused manually, just wait
+            if pause_flag.load(Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            // If focus is lost, set pause flag and wait
+            else if !is_window_focused(hwnd) {
+                pause_flag.store(true, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            
+            // Check if we should stop while paused
+            if !continue_flag.load(Ordering::SeqCst) {
+                return Ok(());
+            }
         }
         
         if ch == '\n' || ch == '\r' {

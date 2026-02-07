@@ -21,6 +21,7 @@ pub struct WindowList {
     typing_config: TypingConfig,
     words_per_minute_input: Entity<InputState>,
     is_typing: Arc<AtomicBool>,
+    is_paused: Arc<AtomicBool>,
 }
 
 impl WindowList {
@@ -47,6 +48,7 @@ impl WindowList {
             typing_config,
             words_per_minute_input,
             is_typing: Arc::new(AtomicBool::new(false)),
+            is_paused: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -76,18 +78,21 @@ impl WindowList {
                 let hwnd = window.hwnd;
                 let config = self.typing_config.clone();
                 let is_typing = self.is_typing.clone();
+                let is_paused = self.is_paused.clone();
                 
-                // Mark that we're starting to type
+                // Mark that we're starting to type and not paused
                 is_typing.store(true, Ordering::SeqCst);
+                is_paused.store(false, Ordering::SeqCst);
                 cx.notify();
                 
                 // Spawn background thread to avoid blocking UI
                 std::thread::spawn(move || {
-                    if let Err(e) = send_unicode_keystrokes(HWND(hwnd as _), &text, &config, &is_typing) {
+                    if let Err(e) = send_unicode_keystrokes(HWND(hwnd as _), &text, &config, &is_typing, &is_paused) {
                         eprintln!("Error sending keystrokes: {}", e);
                     }
                     // Mark that we've stopped typing
                     is_typing.store(false, Ordering::SeqCst);
+                    is_paused.store(false, Ordering::SeqCst);
                 });
             }
         }
@@ -95,6 +100,13 @@ impl WindowList {
 
     fn stop_typing(&mut self, cx: &mut Context<Self>) {
         self.is_typing.store(false, Ordering::SeqCst);
+        self.is_paused.store(false, Ordering::SeqCst);
+        cx.notify();
+    }
+
+    fn toggle_pause(&mut self, cx: &mut Context<Self>) {
+        let current = self.is_paused.load(Ordering::SeqCst);
+        self.is_paused.store(!current, Ordering::SeqCst);
         cx.notify();
     }
 
@@ -159,8 +171,8 @@ impl WindowList {
             )
     }
 
-    /// Render the text input and send/stop buttons
-    fn render_text_input(&self, cx: &Context<Self>, has_selection: bool, is_typing: bool) -> impl IntoElement {
+    /// Render the text input and send/pause/stop buttons
+    fn render_text_input(&self, cx: &Context<Self>, has_selection: bool, is_typing: bool, is_paused: bool) -> impl IntoElement {
         div()
             .flex()
             .gap_2()
@@ -179,6 +191,14 @@ impl WindowList {
                     .on_click(cx.listener(Self::handle_send_click)),
             )
             .child(
+                Button::new("pause")
+                    .label(if is_paused { "Resume" } else { "Pause" })
+                    .disabled(!is_typing)
+                    .on_click(cx.listener(|view, _event, _window, cx| {
+                        view.toggle_pause(cx);
+                    })),
+            )
+            .child(
                 Button::new("stop")
                     .label("Stop")
                     .disabled(!is_typing)
@@ -193,21 +213,31 @@ impl WindowList {
         &self,
         selected_title: Option<String>,
         has_selection: bool,
+        is_paused: bool,
     ) -> impl IntoElement {
-        div().flex().flex_col().gap_1().child(
-            div()
-                .text_sm()
-                .text_color(if has_selection {
-                    rgb(0x66cc66)
-                } else {
-                    rgb(0xcc6666)
-                })
-                .child(if let Some(title) = selected_title {
-                    format!("✓ Selected: {}", title)
-                } else {
-                    "✗ No window selected. Click a window below to select it.".to_string()
-                }),
-        )
+        div().flex().flex_col().gap_1()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(if has_selection {
+                        rgb(0x66cc66)
+                    } else {
+                        rgb(0xcc6666)
+                    })
+                    .child(if let Some(title) = selected_title {
+                        format!("✓ Selected: {}", title)
+                    } else {
+                        "✗ No window selected. Click a window below to select it.".to_string()
+                    }),
+            )
+            .when(is_paused, |parent| {
+                parent.child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(0xffcc66))
+                        .child("⏸ Paused (window lost focus or manually paused)"),
+                )
+            })
     }
 
     /// Render the input section with controls
@@ -218,6 +248,7 @@ impl WindowList {
         has_selection: bool,
         selected_title: Option<String>,
         is_typing: bool,
+        is_paused: bool,
     ) -> impl IntoElement {
         div()
             .flex()
@@ -236,8 +267,8 @@ impl WindowList {
                     .child("Kakapo: Send Keystrokes"),
             )
             .child(self.render_typing_speed_controls(cx, jitter_enabled))
-            .child(self.render_text_input(cx, has_selection, is_typing))
-            .child(self.render_status_messages(selected_title, has_selection))
+            .child(self.render_text_input(cx, has_selection, is_typing, is_paused))
+            .child(self.render_status_messages(selected_title, has_selection, is_paused))
     }
 
     /// Render a single window item in the list
@@ -367,13 +398,14 @@ impl Render for WindowList {
         let selected_title = self.selected_window.as_ref().map(|w| w.title.clone());
         let jitter_enabled = self.typing_config.enable_jitter;
         let is_typing = self.is_typing.load(Ordering::SeqCst);
+        let is_paused = self.is_paused.load(Ordering::SeqCst);
 
         v_flex()
             .gap_3()
             .bg(rgb(0x2d2d2d))
             .size_full()
             .p_4()
-            .child(self.render_input_section(cx, jitter_enabled, has_selection, selected_title, is_typing))
+            .child(self.render_input_section(cx, jitter_enabled, has_selection, selected_title, is_typing, is_paused))
             .child(self.render_window_list_section(cx, windows, selected_hwnd))
     }
 }
