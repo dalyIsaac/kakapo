@@ -18,7 +18,7 @@ fn main() {
         // Initialize gpui-component
         gpui_component::init(cx);
 
-        let bounds = Bounds::centered(None, size(px(700.0), px(700.0)), cx);
+        let bounds = Bounds::centered(None, size(px(800.0), px(700.0)), cx);
 
         let window_options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

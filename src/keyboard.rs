@@ -112,29 +112,42 @@ fn wait_while_paused(
     continue_flag: &Arc<AtomicBool>,
     pause_flag: &Arc<AtomicBool>,
     target_hwnd: &Arc<Mutex<Option<isize>>>,
-) -> Result<bool, String> {
+) -> Result<(bool, HWND), String> {
     let mut was_paused = false;
+    let mut current_hwnd = current_hwnd;
 
     while should_pause(pause_flag, current_hwnd) {
         was_paused = true;
 
         if !continue_flag.load(Ordering::SeqCst) {
-            return Ok(was_paused);
+            return Ok((was_paused, current_hwnd));
         }
 
         let new_hwnd = get_target_hwnd(initial_hwnd, target_hwnd);
         if new_hwnd.0 != current_hwnd.0 {
+            // Target window changed while paused; update and return so caller can react
+            current_hwnd = new_hwnd;
             break;
         }
 
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
-    Ok(was_paused)
+    Ok((was_paused, current_hwnd))
 }
 
-fn send_char_or_newline(ch: char) -> Result<(), String> {
-    if ch == '\n' {
+fn send_char_or_newline(
+    ch: char,
+    chars: &mut std::iter::Peekable<std::str::Chars>,
+) -> Result<(), String> {
+    if ch == '\r' {
+        // Skip \r if it precedes \n (Windows-style CRLF)
+        if chars.peek() == Some(&'\n') {
+            return Ok(()); // Skip the \r, let the \n be processed next
+        }
+        // Standalone \r: send as literal character
+        send_unicode_char(ch)
+    } else if ch == '\n' {
         send_enter_key()
     } else {
         send_unicode_char(ch)
@@ -169,17 +182,18 @@ pub fn send_unicode_keystrokes(
     let total_chars = text.chars().count();
 
     // Process each character, converting newlines to Enter key events
-    let chars = text.chars().peekable();
+    let mut chars = text.chars().peekable();
     let mut is_first_char = true;
 
-    for (char_index, ch) in chars.enumerate() {
+    let mut char_index = 0;
+    while let Some(ch) = chars.next() {
         // Check if we should continue typing
         if !continue_flag.load(Ordering::SeqCst) {
             return Ok(());
         }
 
         // Get the current target window (may have changed during pause)
-        let hwnd = get_target_hwnd(initial_hwnd, target_hwnd);
+        let mut hwnd = get_target_hwnd(initial_hwnd, target_hwnd);
 
         // On first character, activate window before checking focus
         // This ensures Send starts immediately without requiring Resume
@@ -189,16 +203,19 @@ pub fn send_unicode_keystrokes(
         }
 
         // Check if we should pause (manually paused or focus lost)
-        let was_paused =
+        let (was_paused, updated_hwnd) =
             wait_while_paused(initial_hwnd, hwnd, continue_flag, pause_flag, target_hwnd)?;
+
+        // Update hwnd to the latest target (may have changed during pause)
+        hwnd = updated_hwnd;
 
         // If we were paused (either manually or due to focus loss), reactivate window
         if was_paused {
             activate_window(hwnd);
         }
 
-        // Handle newlines (Unix-style: only \n is treated as a newline)
-        send_char_or_newline(ch)?;
+        // Handle newlines (skip \r when it precedes \n for Windows-style CRLF)
+        send_char_or_newline(ch, &mut chars)?;
 
         // Variable delay between characters based on typing configuration
         // Read config dynamically to allow changes during typing
@@ -209,6 +226,8 @@ pub fn send_unicode_keystrokes(
             std::time::Duration::from_millis(50)
         };
         std::thread::sleep(delay);
+
+        char_index += 1;
     }
 
     Ok(())

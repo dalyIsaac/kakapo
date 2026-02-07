@@ -7,7 +7,7 @@ use gpui_component::{
     input::{Input, InputState},
     v_flex, Disableable,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use windows::Win32::Foundation::HWND;
@@ -26,6 +26,7 @@ pub struct WindowList {
     last_wpm_input: String,
     current_target_hwnd: Arc<Mutex<Option<isize>>>,
     current_session_token: Option<Arc<AtomicBool>>,
+    session_counter: Arc<AtomicU64>,
 }
 
 impl WindowList {
@@ -72,6 +73,7 @@ impl WindowList {
             last_wpm_input: String::new(),
             current_target_hwnd: Arc::new(Mutex::new(None)),
             current_session_token: None,
+            session_counter: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -101,6 +103,10 @@ impl WindowList {
                 let is_typing = self.is_typing.clone();
                 let is_paused = self.is_paused.clone();
                 let target_hwnd = self.current_target_hwnd.clone();
+                let session_counter = self.session_counter.clone();
+
+                // Increment session ID for this new typing session
+                let current_session_id = session_counter.fetch_add(1, Ordering::SeqCst) + 1;
 
                 // Create a new per-session cancellation token
                 // This prevents old sessions from continuing when a new one starts
@@ -131,12 +137,18 @@ impl WindowList {
                     ) {
                         eprintln!("Error sending keystrokes: {}", e);
                     }
-                    // Mark that we've stopped typing
-                    is_typing.store(false, Ordering::SeqCst);
-                    is_paused.store(false, Ordering::SeqCst);
-                    // Clear the target window
-                    if let Ok(mut target) = target_hwnd.lock() {
-                        *target = None;
+
+                    // Only clear flags if this is still the active session
+                    // This prevents race conditions where an old session clears flags for a new session
+                    let latest_session_id = session_counter.load(Ordering::SeqCst);
+                    if current_session_id == latest_session_id {
+                        // Mark that we've stopped typing
+                        is_typing.store(false, Ordering::SeqCst);
+                        is_paused.store(false, Ordering::SeqCst);
+                        // Clear the target window
+                        if let Ok(mut target) = target_hwnd.lock() {
+                            *target = None;
+                        }
                     }
                 });
 
@@ -162,11 +174,9 @@ impl WindowList {
         let current_text = self.input_state.read(cx).value();
         let changed = current_text != self.last_text;
 
-        // If text changed while typing, stop the typing
+        // If text changed while typing, stop the typing (cancels the active session)
         if changed && self.is_typing.load(Ordering::SeqCst) {
-            self.is_typing.store(false, Ordering::SeqCst);
-            self.is_paused.store(false, Ordering::SeqCst);
-            self.last_text.clear();
+            self.stop_typing(cx);
         }
 
         changed

@@ -39,7 +39,7 @@ The application simulates realistic human typing behavior through:
 4. **Enable/disable jitter** (optional): Click the "Jitter" button to toggle natural typing variability
 5. **Type your text**: Enter the text you want to send in the input field
 6. **Send keystrokes**: Click the "Send" button
-7. **Pause/Resume** (optional): Click the "Pause" button to pause typing, or "Resume" to continue
+7. **Resume** (optional): If typing is paused (manually or due to focus loss), click "Resume" to continue
    - Typing automatically pauses if the target window loses focus and resumes when focus returns
 8. **Stop** (optional): Click the "Stop" button to cancel typing completely
 
