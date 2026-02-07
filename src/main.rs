@@ -22,6 +22,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 // Use a simple random number generator for jitter
 use std::cell::Cell;
 
+// Constants for typing configuration
+const DEFAULT_CHARS_PER_MINUTE: f64 = 300.0; // ~60 WPM (assuming 5 chars per word)
+const MAX_CHARS_PER_MINUTE: f64 = 10000.0;
+const MIN_DELAY_MS: f64 = 5.0;
+const MIN_SPURT_SIZE: usize = 5;
+const MAX_SPURT_SIZE: usize = 15;
+
 /// A simple linear congruential generator for pseudo-random numbers
 struct SimpleRng {
     state: Cell<u64>,
@@ -60,7 +67,7 @@ struct TypingConfig {
 impl Default for TypingConfig {
     fn default() -> Self {
         Self {
-            chars_per_minute: 300.0, // ~60 WPM (assuming 5 chars per word)
+            chars_per_minute: DEFAULT_CHARS_PER_MINUTE,
             enable_jitter: true,
         }
     }
@@ -124,11 +131,12 @@ fn calculate_keystroke_delay(
 
     // Create "spurts" - alternating periods of faster and slower typing
     // Each spurt is roughly 5-15 characters
-    let spurt_size = 5 + (rng.next_f64() * 10.0) as usize;
-    let spurt_number = char_index / spurt_size;
+    // Use deterministic spurt size based on spurt number to keep consistent spurt lengths
+    let spurt_number = char_index / MIN_SPURT_SIZE;
+    let spurt_size = MIN_SPURT_SIZE + ((spurt_number as f64 * 0.618033988749895) % (MAX_SPURT_SIZE - MIN_SPURT_SIZE) as f64) as usize;
     
     // Alternate between fast and slow spurts
-    let spurt_multiplier = if spurt_number % 2 == 0 {
+    let spurt_multiplier = if (char_index / spurt_size) % 2 == 0 {
         0.7 + rng.next_f64() * 0.3 // Fast spurt: 70-100% of base speed
     } else {
         1.2 + rng.next_f64() * 0.6 // Slow spurt: 120-180% of base speed
@@ -140,8 +148,8 @@ fn calculate_keystroke_delay(
     // Apply both spurt pattern and jitter
     let final_delay_ms = base_delay_ms * spurt_multiplier * jitter;
     
-    // Ensure minimum delay for reliability (at least 5ms)
-    let final_delay_ms = final_delay_ms.max(5.0);
+    // Ensure minimum delay for reliability
+    let final_delay_ms = final_delay_ms.max(MIN_DELAY_MS);
 
     Duration::from_millis(final_delay_ms as u64)
 }
@@ -345,7 +353,7 @@ impl WindowList {
     fn update_typing_speed(&mut self, cx: &mut Context<Self>) {
         let value = self.chars_per_minute_input.read(cx).value();
         if let Ok(chars_per_minute) = value.parse::<f64>() {
-            if chars_per_minute > 0.0 && chars_per_minute <= 10000.0 {
+            if chars_per_minute > 0.0 && chars_per_minute <= MAX_CHARS_PER_MINUTE {
                 self.typing_config.chars_per_minute = chars_per_minute;
                 cx.notify();
             }
