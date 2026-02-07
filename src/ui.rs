@@ -1,6 +1,6 @@
 use crate::keyboard::send_unicode_keystrokes;
 use crate::typing::{TypingConfig, DEFAULT_WORDS_PER_MINUTE};
-use crate::window_manager::{get_system_windows, WindowInfo};
+use crate::window_manager::{get_system_windows, is_window_focused, WindowInfo};
 use gpui::{div, prelude::*, px, rgb, App, Context, Entity, FocusHandle, Focusable, Window};
 use gpui_component::{
     button::{Button, ButtonVariants},
@@ -170,18 +170,42 @@ impl WindowList {
     fn toggle_pause(&mut self, cx: &mut Context<Self>) {
         let current = self.is_paused.load(Ordering::SeqCst);
 
-        // Simple toggle - don't check focus here to avoid immediate resume on clicking
-        self.is_paused.store(!current, Ordering::SeqCst);
+        // Check if we're in auto-pause state (window lost focus)
+        // In this case, pause_flag might be false even though UI shows "Resume"
+        let is_typing = self.is_typing.load(Ordering::SeqCst);
+        let target_has_focus = if let Some(ref window) = self.selected_window {
+            is_window_focused(HWND(window.hwnd as _))
+        } else {
+            false
+        };
 
-        // If resuming (was paused, now not paused), refocus the window
-        if current {
+        // If we're typing and window doesn't have focus, we're auto-paused
+        // In this case, clicking Resume should just refocus (pause_flag stays false)
+        let is_auto_paused = is_typing && !target_has_focus;
+
+        if is_auto_paused {
+            // We're auto-paused due to focus loss
+            // Just refocus the window, don't touch pause_flag
             if let Some(ref window) = self.selected_window {
                 let hwnd = HWND(window.hwnd as _);
-                // Refocus the window in a separate thread to avoid blocking UI
                 std::thread::spawn(move || unsafe {
                     use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
                     let _ = SetForegroundWindow(hwnd);
                 });
+            }
+        } else {
+            // Normal manual pause/resume - toggle the flag
+            self.is_paused.store(!current, Ordering::SeqCst);
+
+            // If resuming from manual pause, refocus the window
+            if current {
+                if let Some(ref window) = self.selected_window {
+                    let hwnd = HWND(window.hwnd as _);
+                    std::thread::spawn(move || unsafe {
+                        use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+                        let _ = SetForegroundWindow(hwnd);
+                    });
+                }
             }
         }
 
