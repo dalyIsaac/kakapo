@@ -235,7 +235,7 @@ impl WindowList {
                     div()
                         .text_sm()
                         .text_color(rgb(0xffcc66))
-                        .child("⏸ Paused (window lost focus or manually paused)"),
+                        .child("⏸ Paused (click Resume to continue)"),
                 )
             })
     }

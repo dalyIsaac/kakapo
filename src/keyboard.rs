@@ -129,22 +129,15 @@ pub fn send_unicode_keystrokes(
             return Ok(());
         }
         
-        // Check if we should pause (manually or due to focus loss)
+        // Check if we should pause (manually paused or focus lost)
         while pause_flag.load(Ordering::SeqCst) || !is_window_focused(hwnd) {
-            // If paused manually, just wait
-            if pause_flag.load(Ordering::SeqCst) {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            // If focus is lost, set pause flag and wait
-            else if !is_window_focused(hwnd) {
-                pause_flag.store(true, Ordering::SeqCst);
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            
             // Check if we should stop while paused
             if !continue_flag.load(Ordering::SeqCst) {
                 return Ok(());
             }
+            
+            // Sleep briefly before checking again
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
         
         if ch == '\n' || ch == '\r' {
