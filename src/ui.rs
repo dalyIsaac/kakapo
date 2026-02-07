@@ -15,7 +15,7 @@ pub struct WindowList {
     selected_window: Option<WindowInfo>,
     input_state: Entity<InputState>,
     focus_handle: FocusHandle,
-    cached_windows: Arc<Mutex<Vec<WindowInfo>>>,
+    cached_windows: Arc<Mutex<Arc<Vec<WindowInfo>>>>,
     typing_config: TypingConfig,
     words_per_minute_input: Entity<InputState>,
 }
@@ -35,7 +35,7 @@ impl WindowList {
                 .default_value(typing_config.words_per_minute.to_string())
         });
 
-        let cached_windows = Arc::new(Mutex::new(get_system_windows()));
+        let cached_windows = Arc::new(Mutex::new(Arc::new(get_system_windows())));
         
         // Start background thread to periodically refresh window list
         // This keeps the expensive Windows API call off the UI thread
@@ -43,7 +43,7 @@ impl WindowList {
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_secs(1));
-                let windows = get_system_windows();
+                let windows = Arc::new(get_system_windows());
                 if let Ok(mut cached) = windows_clone.lock() {
                     *cached = windows;
                 }
@@ -337,7 +337,12 @@ impl WindowList {
 impl Render for WindowList {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Read the cached windows from the background thread
-        let windows = self.cached_windows.lock().unwrap().clone();
+        // Clone only the Arc pointer, not the actual vector
+        let windows = self
+            .cached_windows
+            .lock()
+            .expect("Window cache mutex should not be poisoned")
+            .clone();
         let selected_hwnd = self.selected_window.as_ref().map(|w| w.hwnd);
         let has_selection = self.selected_window.is_some();
         let selected_title = self.selected_window.as_ref().map(|w| w.title.clone());
