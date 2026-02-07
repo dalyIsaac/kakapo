@@ -79,14 +79,14 @@ impl WindowList {
 
     fn select_window(&mut self, window_info: WindowInfo, cx: &mut Context<Self>) {
         self.selected_window = Some(window_info.clone());
-        
+
         // If currently typing, update the target window
         if self.is_typing.load(Ordering::SeqCst) {
             if let Ok(mut target) = self.current_target_hwnd.lock() {
                 *target = Some(window_info.hwnd);
             }
         }
-        
+
         cx.notify();
     }
 
@@ -103,13 +103,13 @@ impl WindowList {
                 // Mark that we're starting to type and not paused
                 is_typing.store(true, Ordering::SeqCst);
                 is_paused.store(false, Ordering::SeqCst);
-                
+
                 // Save the text we're sending and set the target window
                 self.last_text = text.to_string();
                 if let Ok(mut target) = target_hwnd.lock() {
                     *target = Some(hwnd);
                 }
-                
+
                 cx.notify();
 
                 // Spawn background thread to avoid blocking UI
@@ -142,24 +142,24 @@ impl WindowList {
         self.last_text.clear();
         cx.notify();
     }
-    
+
     fn check_text_changed(&mut self, cx: &mut Context<Self>) -> bool {
         let current_text = self.input_state.read(cx).value();
         let changed = current_text != self.last_text;
-        
+
         // If text changed while typing, stop the typing
         if changed && self.is_typing.load(Ordering::SeqCst) {
             self.is_typing.store(false, Ordering::SeqCst);
             self.is_paused.store(false, Ordering::SeqCst);
             self.last_text.clear();
         }
-        
+
         changed
     }
-    
+
     fn check_and_update_typing_speed(&mut self, cx: &mut Context<Self>) {
         let current_wpm = self.words_per_minute_input.read(cx).value();
-        
+
         // Only update if the value has changed
         if current_wpm != self.last_wpm_input {
             self.last_wpm_input = current_wpm.to_string();
@@ -169,10 +169,10 @@ impl WindowList {
 
     fn toggle_pause(&mut self, cx: &mut Context<Self>) {
         let current = self.is_paused.load(Ordering::SeqCst);
-        
+
         // Simple toggle - don't check focus here to avoid immediate resume on clicking
         self.is_paused.store(!current, Ordering::SeqCst);
-        
+
         // If resuming (was paused, now not paused), refocus the window
         if current {
             if let Some(ref window) = self.selected_window {
@@ -210,7 +210,7 @@ impl WindowList {
             }
         }
     }
-    
+
     fn toggle_newline_mode(&mut self, cx: &mut Context<Self>) {
         if let Ok(mut config) = self.typing_config.lock() {
             config.use_windows_newlines = !config.use_windows_newlines;
@@ -220,13 +220,15 @@ impl WindowList {
 
     /// Render the typing speed configuration controls
     fn render_typing_speed_controls(&self, cx: &Context<Self>) -> impl IntoElement {
-        let use_windows_newlines = self.typing_config.lock()
+        let use_windows_newlines = self
+            .typing_config
+            .lock()
             .map(|c| c.use_windows_newlines)
             .unwrap_or(false);
-        
+
         div()
             .flex()
-            .gap_4()  // Changed from flex_col to horizontal layout
+            .gap_4() // Changed from flex_col to horizontal layout
             .items_center()
             .mb_2()
             .child(
@@ -237,14 +239,14 @@ impl WindowList {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgb(0x333333))  // Dark text
+                            .text_color(rgb(0xcccccc))
                             .child("Typing Speed (words/min):"),
                     )
                     .child(
                         div()
                             .w(px(100.))
                             .child(Input::new(&self.words_per_minute_input)),
-                    )
+                    ),
             )
             .child(
                 div()
@@ -259,11 +261,15 @@ impl WindowList {
                     )
                     .child(
                         Button::new("newline_toggle")
-                            .label(if use_windows_newlines { "CRLF (Windows)" } else { "LF (Unix)" })
+                            .label(if use_windows_newlines {
+                                "CRLF (Windows)"
+                            } else {
+                                "LF (Unix)"
+                            })
                             .on_click(cx.listener(|view, _event, _window, cx| {
                                 view.toggle_newline_mode(cx);
-                            }))
-                    )
+                            })),
+                    ),
             )
     }
 
@@ -282,9 +288,9 @@ impl WindowList {
                 div()
                     .text_sm()
                     .text_color(if has_selection {
-                        rgb(0x28a745)  // Green for success
+                        rgb(0x66cc66)
                     } else {
-                        rgb(0xdc3545)  // Red for error
+                        rgb(0xcc6666)
                     })
                     .child(if let Some(title) = selected_title {
                         format!("✓ Selected: {}", title)
@@ -296,7 +302,7 @@ impl WindowList {
             .child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0xff8c00))  // Orange for warning
+                    .text_color(rgb(0xffcc66))
                     .h(px(20.)) // Reserve fixed height
                     .when(is_paused, |div| {
                         div.child("⏸ Paused (click Resume to continue)")
@@ -318,14 +324,14 @@ impl WindowList {
             .flex_col()
             .gap_2()
             .p_4()
-            .bg(rgb(0xffffff))  // White background
+            .bg(rgb(0x3d3d3d))
             .rounded_lg()
             .border_1()
-            .border_color(rgb(0xd0d0d0))  // Light gray border
+            .border_color(rgb(0x505050))
             .child(
                 div()
                     .text_lg()
-                    .text_color(rgb(0x212529))  // Dark text
+                    .text_color(rgb(0xffffff))
                     .mb_2()
                     .child("Kakapo: Send Keystrokes"),
             )
@@ -340,7 +346,7 @@ impl WindowList {
             // Status messages
             .child(self.render_status_messages(selected_title, has_selection, is_paused))
     }
-    
+
     /// Render just the buttons section (separated to place after window list)
     fn render_buttons_standalone(
         &self,
@@ -354,13 +360,13 @@ impl WindowList {
             .flex_col()
             .gap_2()
             .p_4()
-            .bg(rgb(0xffffff))  // White background
+            .bg(rgb(0x3d3d3d))
             .rounded_lg()
             .border_1()
-            .border_color(rgb(0xd0d0d0))  // Light gray border
+            .border_color(rgb(0x505050))
             .child(self.render_buttons(cx, has_selection, is_typing, is_paused))
     }
-    
+
     /// Render just the buttons section
     fn render_buttons(
         &self,
@@ -413,21 +419,21 @@ impl WindowList {
             .p_2()
             .rounded_md()
             .bg(if is_selected {
-                rgb(0x007bff)  // Blue for selected
+                rgb(0x0066cc)
             } else {
-                rgb(0xffffff)  // White for unselected
+                rgb(0x353535)
             })
             .border_1()
             .border_color(if is_selected {
-                rgb(0x0056b3)  // Darker blue border
+                rgb(0x0080ff)
             } else {
-                rgb(0xd0d0d0)  // Light gray border
+                rgb(0x454545)
             })
             .hover(|style| {
                 style.bg(if is_selected {
-                    rgb(0x0056b3)  // Darker blue on hover
+                    rgb(0x0080ff)
                 } else {
-                    rgb(0xe9ecef)  // Light gray on hover
+                    rgb(0x404040)
                 })
             })
             .cursor_pointer()
@@ -440,7 +446,7 @@ impl WindowList {
             )
             .child(
                 div()
-                    .text_color(rgb(0x6c757d))  // Gray for index
+                    .text_color(rgb(0x888888))
                     .flex_shrink_0()
                     .child(format!("{}. ", index + 1)),
             )
@@ -453,11 +459,7 @@ impl WindowList {
                     .flex_grow()
                     .child(
                         div()
-                            .text_color(if is_selected { 
-                                rgb(0xffffff)  // White text when selected
-                            } else { 
-                                rgb(0x212529)  // Dark text when not selected
-                            })
+                            .text_color(rgb(0xcccccc))
                             .w_full()
                             .overflow_hidden()
                             .text_ellipsis()
@@ -467,11 +469,7 @@ impl WindowList {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(if is_selected {
-                                rgb(0xe3f2fd)  // Light blue when selected
-                            } else {
-                                rgb(0x6c757d)  // Gray when not selected
-                            })
+                            .text_color(rgb(0x666666))
                             .child(format!("HWND: 0x{:X}", window_info.hwnd)),
                     ),
             )
@@ -489,18 +487,18 @@ impl WindowList {
             .flex_col()
             .gap_2()
             .p_4()
-            .bg(rgb(0xffffff))  // White background
+            .bg(rgb(0x3d3d3d))
             .rounded_lg()
             .border_1()
-            .border_color(rgb(0xd0d0d0))  // Light gray border
+            .border_color(rgb(0x505050))
             .flex_grow()
             .flex_shrink()
-            .min_h(px(200.))  // Ensure minimum height
+            .min_h(px(200.)) // Ensure minimum height
             .overflow_hidden()
             .child(
                 div()
                     .text_lg()
-                    .text_color(rgb(0x212529))  // Dark text
+                    .text_color(rgb(0xffffff))
                     .mb_2()
                     .flex_shrink_0()
                     .child("Window List"),
@@ -527,10 +525,10 @@ impl Render for WindowList {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Check if text has changed while typing - if so, reset state
         self.check_text_changed(cx);
-        
+
         // Check if typing speed has changed and update config
         self.check_and_update_typing_speed(cx);
-        
+
         // Try to update local cache from background thread without blocking
         // This avoids locking on every render frame
         if let Ok(cached) = self.cached_windows.try_lock() {
@@ -565,7 +563,7 @@ impl Render for WindowList {
 
         v_flex()
             .gap_3()
-            .bg(rgb(0xf5f5f5))  // Light background
+            .bg(rgb(0x2d2d2d))
             .size_full()
             .p_4()
             // 1. Header, 2. Textbox, 3. Typing speed, 4. Messages (all in render_input_section)
