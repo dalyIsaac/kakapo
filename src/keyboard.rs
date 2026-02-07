@@ -111,32 +111,18 @@ fn activate_window(hwnd: HWND) {
 ///
 /// Reference: https://github.com/keepassxreboot/keepassxc
 pub fn send_unicode_keystrokes(
-    hwnd: HWND,
+    initial_hwnd: HWND,
     text: &str,
     config: &Arc<Mutex<TypingConfig>>,
     continue_flag: &Arc<AtomicBool>,
     pause_flag: &Arc<AtomicBool>,
+    target_hwnd: &Arc<Mutex<Option<isize>>>,
 ) -> Result<(), String> {
-    activate_window(hwnd);
-
     let rng = SimpleRng::new();
-    
-    // Get the newline mode from config
-    let use_windows_newlines = config.lock().map(|c| c.use_windows_newlines).unwrap_or(false);
-    
-    // Process text and normalize newlines based on the mode
-    let processed_text = if use_windows_newlines {
-        // Convert all newlines to \r\n
-        text.replace("\r\n", "\n").replace('\n', "\r\n")
-    } else {
-        // Convert all newlines to \n
-        text.replace("\r\n", "\n")
-    };
-    
-    let total_chars = processed_text.chars().count();
+    let total_chars = text.chars().count();
 
     // Process each character, converting newlines to Enter key events
-    let mut chars = processed_text.chars().peekable();
+    let mut chars = text.chars().peekable();
     let mut char_index = 0;
     
     while let Some(ch) = chars.next() {
@@ -144,6 +130,13 @@ pub fn send_unicode_keystrokes(
         if !continue_flag.load(Ordering::SeqCst) {
             return Ok(());
         }
+
+        // Get the current target window (may have changed during pause)
+        let hwnd = if let Ok(target) = target_hwnd.lock() {
+            HWND(target.unwrap_or(initial_hwnd.0) as _)
+        } else {
+            initial_hwnd
+        };
 
         // Check if we should pause (manually paused or focus lost)
         while pause_flag.load(Ordering::SeqCst) || !is_window_focused(hwnd) {
@@ -156,13 +149,20 @@ pub fn send_unicode_keystrokes(
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
-        // Handle newlines: if we see \r, check if it's followed by \n and send Enter once
+        // Activate window before each keystroke (in case it changed)
+        activate_window(hwnd);
+
+        // Handle newlines based on current mode
         if ch == '\r' {
+            // If we see \r, check if it's followed by \n
             if chars.peek() == Some(&'\n') {
                 chars.next(); // Consume the \n
             }
             send_enter_key()?;
         } else if ch == '\n' {
+            // Check if we should send \r\n (Windows mode) or just \n (Unix mode)
+            // For sending, we always send Enter once regardless of mode
+            // The mode affects how we interpret the input text
             send_enter_key()?;
         } else {
             send_unicode_char(ch)?;

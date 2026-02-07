@@ -24,6 +24,7 @@ pub struct WindowList {
     is_paused: Arc<AtomicBool>,
     last_text: String,
     last_wpm_input: String,
+    current_target_hwnd: Arc<Mutex<Option<isize>>>,
 }
 
 impl WindowList {
@@ -68,6 +69,7 @@ impl WindowList {
             is_paused: Arc::new(AtomicBool::new(false)),
             last_text: String::new(),
             last_wpm_input: String::new(),
+            current_target_hwnd: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -76,7 +78,15 @@ impl WindowList {
     }
 
     fn select_window(&mut self, window_info: WindowInfo, cx: &mut Context<Self>) {
-        self.selected_window = Some(window_info);
+        self.selected_window = Some(window_info.clone());
+        
+        // If currently typing, update the target window
+        if self.is_typing.load(Ordering::SeqCst) {
+            if let Ok(mut target) = self.current_target_hwnd.lock() {
+                *target = Some(window_info.hwnd);
+            }
+        }
+        
         cx.notify();
     }
 
@@ -88,13 +98,17 @@ impl WindowList {
                 let config = self.typing_config.clone();
                 let is_typing = self.is_typing.clone();
                 let is_paused = self.is_paused.clone();
+                let target_hwnd = self.current_target_hwnd.clone();
 
                 // Mark that we're starting to type and not paused
                 is_typing.store(true, Ordering::SeqCst);
                 is_paused.store(false, Ordering::SeqCst);
                 
-                // Save the text we're sending
+                // Save the text we're sending and set the target window
                 self.last_text = text.to_string();
+                if let Ok(mut target) = target_hwnd.lock() {
+                    *target = Some(hwnd);
+                }
                 
                 cx.notify();
 
@@ -106,12 +120,17 @@ impl WindowList {
                         &config,
                         &is_typing,
                         &is_paused,
+                        &target_hwnd,
                     ) {
                         eprintln!("Error sending keystrokes: {}", e);
                     }
                     // Mark that we've stopped typing
                     is_typing.store(false, Ordering::SeqCst);
                     is_paused.store(false, Ordering::SeqCst);
+                    // Clear the target window
+                    if let Ok(mut target) = target_hwnd.lock() {
+                        *target = None;
+                    }
                 });
             }
         }
@@ -149,27 +168,13 @@ impl WindowList {
     }
 
     fn toggle_pause(&mut self, cx: &mut Context<Self>) {
-        let is_typing = self.is_typing.load(Ordering::SeqCst);
-        
-        // Check if window has lost focus
-        let target_has_focus = if is_typing {
-            if let Some(ref window) = self.selected_window {
-                use crate::window_manager::is_window_focused;
-                is_window_focused(HWND(window.hwnd as _))
-            } else {
-                true
-            }
-        } else {
-            true
-        };
-        
         let current = self.is_paused.load(Ordering::SeqCst);
         
-        // If focus was lost and we're "resuming", clear the pause flag and refocus
-        if !target_has_focus || current {
-            // Clear pause flag and refocus window
-            self.is_paused.store(false, Ordering::SeqCst);
-            
+        // Simple toggle - don't check focus here to avoid immediate resume on clicking
+        self.is_paused.store(!current, Ordering::SeqCst);
+        
+        // If resuming (was paused, now not paused), refocus the window
+        if current {
             if let Some(ref window) = self.selected_window {
                 let hwnd = HWND(window.hwnd as _);
                 // Refocus the window in a separate thread to avoid blocking UI
@@ -178,9 +183,6 @@ impl WindowList {
                     let _ = SetForegroundWindow(hwnd);
                 });
             }
-        } else {
-            // Toggle pause state normally
-            self.is_paused.store(!current, Ordering::SeqCst);
         }
 
         cx.notify();
@@ -224,8 +226,8 @@ impl WindowList {
         
         div()
             .flex()
-            .flex_col()
-            .gap_2()
+            .gap_4()  // Changed from flex_col to horizontal layout
+            .items_center()
             .mb_2()
             .child(
                 div()
@@ -257,7 +259,7 @@ impl WindowList {
                     )
                     .child(
                         Button::new("newline_toggle")
-                            .label(if use_windows_newlines { "\\r\\n (Windows)" } else { "\\n (Unix)" })
+                            .label(if use_windows_newlines { "CRLF (Windows)" } else { "LF (Unix)" })
                             .on_click(cx.listener(|view, _event, _window, cx| {
                                 view.toggle_newline_mode(cx);
                             }))
