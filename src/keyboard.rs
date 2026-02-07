@@ -19,10 +19,11 @@ fn send_enter_key_to_window(hwnd: HWND) -> Result<(), String> {
 /// Sends a Unicode character to a specific window using WM_CHAR message
 fn send_unicode_char_to_window(hwnd: HWND, ch: char) -> Result<(), String> {
     unsafe {
-        let utf16_chars: Vec<u16> = ch.encode_utf16(&mut [0u16; 2]).to_vec();
+        let mut buf = [0u16; 2];
+        let utf16_chars = ch.encode_utf16(&mut buf);
         
-        for &code_unit in &utf16_chars {
-            SendMessageW(hwnd, WM_CHAR, WPARAM(code_unit as usize), LPARAM(0));
+        for code_unit in utf16_chars {
+            SendMessageW(hwnd, WM_CHAR, WPARAM(*code_unit as usize), LPARAM(0));
         }
     }
     Ok(())
@@ -34,20 +35,21 @@ fn send_unicode_char_to_window(hwnd: HWND, ch: char) -> Result<(), String> {
 ///
 /// Newlines are converted to VK_RETURN key events for proper multiline support.
 /// 
-/// The `stop_flag` parameter can be used to cancel the operation early.
+/// The `continue_flag` parameter should be set to `true` to continue typing.
+/// Setting it to `false` will cause the operation to stop early.
 pub fn send_unicode_keystrokes(
     hwnd: HWND,
     text: &str,
     config: &TypingConfig,
-    stop_flag: &Arc<AtomicBool>,
+    continue_flag: &Arc<AtomicBool>,
 ) -> Result<(), String> {
     let rng = SimpleRng::new();
     let total_chars = text.chars().count();
 
     // Process each character, converting newlines to Enter key events
     for (char_index, ch) in text.chars().enumerate() {
-        // Check if we should stop
-        if !stop_flag.load(Ordering::SeqCst) {
+        // Check if we should continue typing
+        if !continue_flag.load(Ordering::SeqCst) {
             return Ok(());
         }
         
