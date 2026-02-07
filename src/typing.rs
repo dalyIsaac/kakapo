@@ -43,7 +43,7 @@ pub fn calculate_keystroke_delay(
 ) -> Duration {
     // Convert words per minute to characters per minute
     let chars_per_minute = config.words_per_minute * CHARS_PER_WORD;
-    
+
     // Base delay from characters per minute
     let base_delay_ms = 60_000.0 / chars_per_minute;
 
@@ -55,10 +55,12 @@ pub fn calculate_keystroke_delay(
     // Each spurt is roughly 5-15 characters
     // Use deterministic spurt size based on spurt number to keep consistent spurt lengths
     let spurt_number = char_index / MIN_SPURT_SIZE;
-    let spurt_size = MIN_SPURT_SIZE + ((spurt_number as f64 * 0.618033988749895) % (MAX_SPURT_SIZE - MIN_SPURT_SIZE) as f64) as usize;
-    
+    let spurt_size = MIN_SPURT_SIZE
+        + ((spurt_number as f64 * 0.618033988749895) % (MAX_SPURT_SIZE - MIN_SPURT_SIZE) as f64)
+            as usize;
+
     // Alternate between fast and slow spurts
-    let spurt_multiplier = if (char_index / spurt_size) % 2 == 0 {
+    let spurt_multiplier = if (char_index / spurt_size).is_multiple_of(2) {
         0.7 + rng.next_f64() * 0.3 // Fast spurt: 70-100% of base speed
     } else {
         1.2 + rng.next_f64() * 0.6 // Slow spurt: 120-180% of base speed
@@ -69,7 +71,7 @@ pub fn calculate_keystroke_delay(
 
     // Apply both spurt pattern and jitter
     let final_delay_ms = base_delay_ms * spurt_multiplier * jitter;
-    
+
     // Ensure minimum delay for reliability
     let final_delay_ms = final_delay_ms.max(MIN_DELAY_MS);
 

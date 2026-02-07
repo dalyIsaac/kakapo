@@ -1,9 +1,7 @@
 use crate::keyboard::send_unicode_keystrokes;
 use crate::typing::{TypingConfig, DEFAULT_WORDS_PER_MINUTE};
 use crate::window_manager::{get_system_windows, WindowInfo};
-use gpui::{
-    div, prelude::*, px, rgb, App, Context, Entity, FocusHandle, Focusable, Window,
-};
+use gpui::{div, prelude::*, px, rgb, App, Context, Entity, FocusHandle, Focusable, Window};
 use gpui_component::{
     button::{Button, ButtonVariants},
     input::{Input, InputState},
@@ -24,14 +22,16 @@ pub struct WindowList {
 
 impl WindowList {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input_state = cx.new(|cx| InputState::new(window, cx)
-            .placeholder("Type text to send...")
-            .multi_line(true));
+        let input_state = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Type text to send...")
+                .multi_line(true)
+        });
 
         let typing_config = TypingConfig::default();
         let words_per_minute_input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder(&DEFAULT_WORDS_PER_MINUTE.to_string())
+                .placeholder(DEFAULT_WORDS_PER_MINUTE.to_string())
                 .default_value(typing_config.words_per_minute.to_string())
         });
 
@@ -115,7 +115,11 @@ impl WindowList {
     }
 
     /// Render the typing speed configuration controls
-    fn render_typing_speed_controls(&self, cx: &Context<Self>, jitter_enabled: bool) -> impl IntoElement {
+    fn render_typing_speed_controls(
+        &self,
+        cx: &Context<Self>,
+        jitter_enabled: bool,
+    ) -> impl IntoElement {
         div()
             .flex()
             .gap_2()
@@ -134,7 +138,11 @@ impl WindowList {
             )
             .child(
                 Button::new("toggle_jitter")
-                    .label(if jitter_enabled { "✓ Jitter" } else { "Jitter" })
+                    .label(if jitter_enabled {
+                        "✓ Jitter"
+                    } else {
+                        "Jitter"
+                    })
                     .on_click(cx.listener(|view, _event, _window, cx| {
                         view.toggle_jitter(cx);
                     })),
@@ -142,7 +150,12 @@ impl WindowList {
     }
 
     /// Render the text input and send button
-    fn render_text_input(&self, cx: &Context<Self>, has_selection: bool, text_empty: bool) -> impl IntoElement {
+    fn render_text_input(
+        &self,
+        cx: &Context<Self>,
+        has_selection: bool,
+        text_empty: bool,
+    ) -> impl IntoElement {
         div()
             .flex()
             .gap_2()
@@ -189,15 +202,10 @@ impl WindowList {
                     }),
             )
             .when(!invalid_chars.is_empty(), |this| {
-                this.child(
-                    div()
-                        .text_sm()
-                        .text_color(rgb(0xff6666))
-                        .child(format!(
-                            "⚠ Invalid characters that cannot be sent: {:?}",
-                            invalid_chars
-                        )),
-                )
+                this.child(div().text_sm().text_color(rgb(0xff6666)).child(format!(
+                    "⚠ Invalid characters that cannot be sent: {:?}",
+                    invalid_chars
+                )))
             })
             .when(invalid_chars.is_empty() && !text_empty, |this| {
                 this.child(
@@ -233,11 +241,16 @@ impl WindowList {
                     .text_lg()
                     .text_color(rgb(0xffffff))
                     .mb_2()
-                    .child("Send Keystrokes"),
+                    .child("Kakapo: Send Keystrokes"),
             )
             .child(self.render_typing_speed_controls(cx, jitter_enabled))
             .child(self.render_text_input(cx, has_selection, text_empty))
-            .child(self.render_status_messages(selected_title, has_selection, invalid_chars, text_empty))
+            .child(self.render_status_messages(
+                selected_title,
+                has_selection,
+                invalid_chars,
+                text_empty,
+            ))
     }
 
     /// Render a single window item in the list
@@ -274,9 +287,12 @@ impl WindowList {
             })
             .cursor_pointer()
             .min_w_0()
-            .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |view, _event, _window, cx| {
-                view.select_window(window_clone.clone(), cx);
-            }))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(move |view, _event, _window, cx| {
+                    view.select_window(window_clone.clone(), cx);
+                }),
+            )
             .child(
                 div()
                     .text_color(rgb(0x888888))
@@ -300,9 +316,10 @@ impl WindowList {
                             .child(window_info.title.clone()),
                     )
                     .child(
-                        div().text_xs().text_color(rgb(0x666666)).child(
-                            format!("HWND: 0x{:X}", window_info.hwnd),
-                        ),
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x666666))
+                            .child(format!("HWND: 0x{:X}", window_info.hwnd)),
                     ),
             )
     }
@@ -356,7 +373,7 @@ impl Render for WindowList {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Refresh window list if needed (detects window focus changes)
         self.refresh_windows_if_needed(cx);
-        
+
         let windows = &self.cached_windows;
         let selected_hwnd = self.selected_window.as_ref().map(|w| w.hwnd);
         let has_selection = self.selected_window.is_some();
@@ -371,7 +388,14 @@ impl Render for WindowList {
             .bg(rgb(0x2d2d2d))
             .size_full()
             .p_4()
-            .child(self.render_input_section(cx, jitter_enabled, has_selection, selected_title, invalid_chars, text_empty))
+            .child(self.render_input_section(
+                cx,
+                jitter_enabled,
+                has_selection,
+                selected_title,
+                invalid_chars,
+                text_empty,
+            ))
             .child(self.render_window_list_section(cx, windows, selected_hwnd))
     }
 }
