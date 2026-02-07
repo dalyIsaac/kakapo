@@ -38,18 +38,16 @@ impl WindowList {
 
         let initial_windows = Arc::new(get_system_windows());
         let cached_windows = Arc::new(Mutex::new(Arc::clone(&initial_windows)));
-        
+
         // Start background thread to periodically refresh window list
         // This keeps the expensive Windows API call off the UI thread
         // Refresh every 2 seconds to minimize overhead
         let windows_clone = Arc::clone(&cached_windows);
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(Duration::from_secs(2));
-                let windows = Arc::new(get_system_windows());
-                if let Ok(mut cached) = windows_clone.lock() {
-                    *cached = windows;
-                }
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(2));
+            let windows = Arc::new(get_system_windows());
+            if let Ok(mut cached) = windows_clone.lock() {
+                *cached = windows;
             }
         });
 
@@ -324,7 +322,7 @@ impl Render for WindowList {
         if let Ok(cached) = self.cached_windows.try_lock() {
             self.cached_windows_local = Arc::clone(&cached);
         }
-        
+
         // Use the local cached copy for rendering - no lock needed
         let windows = &self.cached_windows_local;
         let selected_hwnd = self.selected_window.as_ref().map(|w| w.hwnd);
