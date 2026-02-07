@@ -138,7 +138,10 @@ pub fn send_unicode_keystrokes(
             initial_hwnd
         };
 
-        // Check if we should pause (manually paused or focus lost)
+        // Activate window before each keystroke (in case it changed)
+        activate_window(hwnd);
+
+        // Check if we should pause (manually paused or focus lost AFTER activation)
         while pause_flag.load(Ordering::SeqCst) || !is_window_focused(hwnd) {
             // Check if we should stop while paused
             if !continue_flag.load(Ordering::SeqCst) {
@@ -147,10 +150,12 @@ pub fn send_unicode_keystrokes(
 
             // Sleep briefly before checking again
             std::thread::sleep(std::time::Duration::from_millis(100));
-        }
 
-        // Activate window before each keystroke (in case it changed)
-        activate_window(hwnd);
+            // Try to reactivate window if focus was lost
+            if !is_window_focused(hwnd) {
+                activate_window(hwnd);
+            }
+        }
 
         // Handle newlines based on current mode
         if ch == '\r' {

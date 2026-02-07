@@ -67,9 +67,9 @@ pub fn calculate_keystroke_delay(
 
     // Alternate between fast and slow spurts
     let spurt_multiplier = if (char_index / spurt_size).is_multiple_of(2) {
-        0.7 + rng.next_f64() * 0.3 // Fast spurt: 70-100% of base speed
+        0.6 + rng.next_f64() * 0.3 // Fast spurt: 60-90% of base delay (faster typing)
     } else {
-        1.2 + rng.next_f64() * 0.6 // Slow spurt: 120-180% of base speed
+        1.0 + rng.next_f64() * 0.3 // Slow spurt: 100-130% of base delay (slightly slower)
     };
 
     // Add random jitter within the current spurt
