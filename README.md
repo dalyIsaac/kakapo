@@ -88,6 +88,17 @@ The `KEYEVENTF_UNICODE` flag tells Windows to inject keystrokes at the lowest le
 - **Foreground Focus**: The target window must be brought to the foreground to receive keystrokes
 - **No Special Keys**: Currently only supports sending Unicode characters (letters, numbers, symbols)
 
+## CI/CD
+
+This project uses GitHub Actions for continuous integration and deployment:
+
+- **Clippy Workflow**: Runs on all pushes and pull requests to the main branch to ensure code quality using Rust's clippy linter
+- **Release Workflow**: Automatically builds and creates GitHub releases for all commits to the main branch
+  - Builds a release binary for Windows
+  - Creates a GitHub release with auto-generated release notes
+  - Uploads the compiled `kakapo.exe` as a release asset
+  - Tag format: `v{version}-{commit-sha}` (e.g., `v0.1.0-a8883b6`)
+
 ## License
 
 See LICENSE file for details.
