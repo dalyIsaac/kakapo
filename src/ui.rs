@@ -378,6 +378,7 @@ impl WindowList {
         has_selection: bool,
         is_typing: bool,
         is_paused: bool,
+        target_has_focus: bool,
     ) -> impl IntoElement {
         div()
             .flex()
@@ -388,7 +389,7 @@ impl WindowList {
             .rounded_lg()
             .border_1()
             .border_color(rgb(0x505050))
-            .child(self.render_buttons(cx, has_selection, is_typing, is_paused))
+            .child(self.render_buttons(cx, has_selection, is_typing, is_paused, target_has_focus))
     }
 
     /// Render just the buttons section
@@ -398,6 +399,7 @@ impl WindowList {
         has_selection: bool,
         is_typing: bool,
         is_paused: bool,
+        target_has_focus: bool,
     ) -> impl IntoElement {
         div()
             .flex()
@@ -413,7 +415,7 @@ impl WindowList {
             .child(
                 Button::new("pause")
                     .label(if is_paused { "Resume" } else { "Pause" })
-                    .disabled(!is_typing)
+                    .disabled(!is_typing || (is_typing && !target_has_focus))
                     .on_click(cx.listener(|view, _event, _window, cx| {
                         view.toggle_pause(cx);
                     })),
@@ -601,7 +603,13 @@ impl Render for WindowList {
             // 5. Window list
             .child(self.render_window_list_section(cx, windows, selected_hwnd))
             // 6. Buttons
-            .child(self.render_buttons_standalone(cx, has_selection, is_typing, is_paused))
+            .child(self.render_buttons_standalone(
+                cx,
+                has_selection,
+                is_typing,
+                is_paused,
+                target_has_focus,
+            ))
     }
 }
 
