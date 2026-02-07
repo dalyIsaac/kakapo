@@ -8,6 +8,8 @@ A Windows application for viewing system windows and sending keystrokes to them.
 - **Window Selection**: Click any window to select it as the target
 - **Keystroke Input**: Type text in the input field to send to the selected window
 - **Virtual Keystroke Support**: Send keystrokes that work with virtual machines and remote desktop applications
+- **Typing Speed Control**: Configure typing speed in characters per minute (default: 300 CPM, ~60 WPM)
+- **Natural Typing Variability**: Enable/disable jitter for more realistic, human-like typing patterns with "spurt" behavior
 
 ## How It Works
 
@@ -17,12 +19,23 @@ Kakapo uses the Windows `SendInput` API with the `KEYEVENTF_UNICODE` flag to sen
 - Remote desktop applications (Amazon Workspaces, Azure Virtual Desktop)
 - Standard Windows applications
 
+### Typing Variability
+
+The application simulates realistic human typing behavior through:
+
+- **Configurable Speed**: Set your desired typing speed in characters per minute
+- **Jitter Pattern**: When enabled, creates natural variations in typing speed that mimic human behavior
+- **Spurt Behavior**: Alternates between faster and slower typing periods (5-15 characters each), creating a more natural rhythm
+- **Random Variation**: Adds 80-120% variation to each keystroke timing within spurts
+
 ## Usage
 
 1. **Launch the application**: Run `cargo run --release` or execute the built binary
 2. **Select a target window**: Click on any window in the list to select it
-3. **Type your text**: Enter the text you want to send in the input field
-4. **Send keystrokes**: Click the "Send" button
+3. **Configure typing speed** (optional): Enter desired characters per minute in the input field
+4. **Enable/disable jitter** (optional): Click the "Jitter" button to toggle natural typing variability
+5. **Type your text**: Enter the text you want to send in the input field
+6. **Send keystrokes**: Click the "Send" button
 
 ## Building
 
