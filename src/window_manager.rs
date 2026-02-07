@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetForegroundWindow, GetWindowTextW, IsWindowVisible};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetForegroundWindow, GetWindowTextW, IsWindowVisible,
+};
 
 #[derive(Clone, Debug)]
 pub struct WindowInfo {

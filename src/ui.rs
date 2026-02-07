@@ -9,15 +9,15 @@ use gpui_component::{
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use windows::Win32::Foundation::HWND;
 
 pub struct WindowList {
     selected_window: Option<WindowInfo>,
     input_state: Entity<InputState>,
     focus_handle: FocusHandle,
-    cached_windows: Vec<WindowInfo>,
-    last_refresh: Instant,
+    cached_windows: Arc<Mutex<Arc<Vec<WindowInfo>>>>,
+    cached_windows_local: Arc<Vec<WindowInfo>>,
     typing_config: Arc<Mutex<TypingConfig>>,
     words_per_minute_input: Entity<InputState>,
     is_typing: Arc<AtomicBool>,
@@ -39,12 +39,27 @@ impl WindowList {
                 .default_value(typing_config.lock().unwrap().words_per_minute.to_string())
         });
 
+        let initial_windows = Arc::new(get_system_windows());
+        let cached_windows = Arc::new(Mutex::new(Arc::clone(&initial_windows)));
+
+        // Start background thread to periodically refresh window list
+        // This keeps the expensive Windows API call off the UI thread
+        // Refresh every 2 seconds to minimize overhead
+        let windows_clone = Arc::clone(&cached_windows);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(2));
+            let windows = Arc::new(get_system_windows());
+            if let Ok(mut cached) = windows_clone.lock() {
+                *cached = windows;
+            }
+        });
+
         Self {
             selected_window: None,
             input_state,
             focus_handle: cx.focus_handle(),
-            cached_windows: get_system_windows(),
-            last_refresh: Instant::now(),
+            cached_windows,
+            cached_windows_local: initial_windows,
             typing_config,
             words_per_minute_input,
             is_typing: Arc::new(AtomicBool::new(false)),
@@ -54,16 +69,6 @@ impl WindowList {
 
     pub fn input_state(&self) -> &Entity<InputState> {
         &self.input_state
-    }
-
-    fn refresh_windows_if_needed(&mut self, cx: &mut Context<Self>) {
-        // Refresh window list if it's been more than 1 second since last refresh
-        // This will catch window focus changes
-        if self.last_refresh.elapsed() > Duration::from_secs(1) {
-            self.cached_windows = get_system_windows();
-            self.last_refresh = Instant::now();
-            cx.notify();
-        }
     }
 
     fn select_window(&mut self, window_info: WindowInfo, cx: &mut Context<Self>) {
@@ -79,15 +84,21 @@ impl WindowList {
                 let config = self.typing_config.clone();
                 let is_typing = self.is_typing.clone();
                 let is_paused = self.is_paused.clone();
-                
+
                 // Mark that we're starting to type and not paused
                 is_typing.store(true, Ordering::SeqCst);
                 is_paused.store(false, Ordering::SeqCst);
                 cx.notify();
-                
+
                 // Spawn background thread to avoid blocking UI
                 std::thread::spawn(move || {
-                    if let Err(e) = send_unicode_keystrokes(HWND(hwnd as _), &text, &config, &is_typing, &is_paused) {
+                    if let Err(e) = send_unicode_keystrokes(
+                        HWND(hwnd as _),
+                        &text,
+                        &config,
+                        &is_typing,
+                        &is_paused,
+                    ) {
                         eprintln!("Error sending keystrokes: {}", e);
                     }
                     // Mark that we've stopped typing
@@ -108,22 +119,20 @@ impl WindowList {
         let current = self.is_paused.load(Ordering::SeqCst);
         let new_state = !current;
         self.is_paused.store(new_state, Ordering::SeqCst);
-        
+
         // Requirement 1: When resuming (going from paused to not paused), refocus the target window
         if !new_state && current {
             // We're resuming from pause
             if let Some(ref window) = self.selected_window {
                 let hwnd = HWND(window.hwnd as _);
                 // Refocus the window in a separate thread to avoid blocking UI
-                std::thread::spawn(move || {
-                    unsafe {
-                        use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
-                        let _ = SetForegroundWindow(hwnd);
-                    }
+                std::thread::spawn(move || unsafe {
+                    use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+                    let _ = SetForegroundWindow(hwnd);
                 });
             }
         }
-        
+
         cx.notify();
     }
 
@@ -150,19 +159,8 @@ impl WindowList {
         }
     }
 
-    fn toggle_jitter(&mut self, cx: &mut Context<Self>) {
-        if let Ok(mut config) = self.typing_config.lock() {
-            config.enable_jitter = !config.enable_jitter;
-        }
-        cx.notify();
-    }
-
     /// Render the typing speed configuration controls
-    fn render_typing_speed_controls(
-        &self,
-        cx: &Context<Self>,
-        jitter_enabled: bool,
-    ) -> impl IntoElement {
+    fn render_typing_speed_controls(&self, _cx: &Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .gap_2()
@@ -179,21 +177,16 @@ impl WindowList {
                     .w(px(100.))
                     .child(Input::new(&self.words_per_minute_input)),
             )
-            .child(
-                Button::new("toggle_jitter")
-                    .label(if jitter_enabled {
-                        "✓ Jitter"
-                    } else {
-                        "Jitter"
-                    })
-                    .on_click(cx.listener(|view, _event, _window, cx| {
-                        view.toggle_jitter(cx);
-                    })),
-            )
     }
 
     /// Render the text input and send/pause/stop buttons
-    fn render_text_input(&self, cx: &Context<Self>, has_selection: bool, is_typing: bool, is_paused: bool) -> impl IntoElement {
+    fn render_text_input(
+        &self,
+        cx: &Context<Self>,
+        has_selection: bool,
+        is_typing: bool,
+        is_paused: bool,
+    ) -> impl IntoElement {
         div()
             .flex()
             .gap_2()
@@ -236,7 +229,10 @@ impl WindowList {
         has_selection: bool,
         is_paused: bool,
     ) -> impl IntoElement {
-        div().flex().flex_col().gap_1()
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
             .child(
                 div()
                     .text_sm()
@@ -265,7 +261,6 @@ impl WindowList {
     fn render_input_section(
         &self,
         cx: &Context<Self>,
-        jitter_enabled: bool,
         has_selection: bool,
         selected_title: Option<String>,
         is_typing: bool,
@@ -287,7 +282,7 @@ impl WindowList {
                     .mb_2()
                     .child("Kakapo: Send Keystrokes"),
             )
-            .child(self.render_typing_speed_controls(cx, jitter_enabled))
+            .child(self.render_typing_speed_controls(cx))
             .child(self.render_text_input(cx, has_selection, is_typing, is_paused))
             .child(self.render_status_messages(selected_title, has_selection, is_paused))
     }
@@ -410,17 +405,20 @@ impl WindowList {
 
 impl Render for WindowList {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Refresh window list if needed (detects window focus changes)
-        self.refresh_windows_if_needed(cx);
+        // Try to update local cache from background thread without blocking
+        // This avoids locking on every render frame
+        if let Ok(cached) = self.cached_windows.try_lock() {
+            self.cached_windows_local = Arc::clone(&cached);
+        }
 
-        let windows = &self.cached_windows;
+        // Use the local cached copy for rendering - no lock needed
+        let windows = &self.cached_windows_local;
         let selected_hwnd = self.selected_window.as_ref().map(|w| w.hwnd);
         let has_selection = self.selected_window.is_some();
         let selected_title = self.selected_window.as_ref().map(|w| w.title.clone());
-        let jitter_enabled = self.typing_config.lock().map(|c| c.enable_jitter).unwrap_or(true);
         let is_typing = self.is_typing.load(Ordering::SeqCst);
         let mut is_paused = self.is_paused.load(Ordering::SeqCst);
-        
+
         // Requirement 2: Check if target window has lost focus while typing
         // If so, treat it as paused for UI purposes (button shows "Resume")
         let target_has_focus = if is_typing && has_selection {
@@ -433,7 +431,7 @@ impl Render for WindowList {
         } else {
             true
         };
-        
+
         // If target lost focus while typing, show as paused in UI
         if is_typing && !target_has_focus {
             is_paused = true;
@@ -444,7 +442,13 @@ impl Render for WindowList {
             .bg(rgb(0x2d2d2d))
             .size_full()
             .p_4()
-            .child(self.render_input_section(cx, jitter_enabled, has_selection, selected_title, is_typing, is_paused))
+            .child(self.render_input_section(
+                cx,
+                has_selection,
+                selected_title,
+                is_typing,
+                is_paused,
+            ))
             .child(self.render_window_list_section(cx, windows, selected_hwnd))
     }
 }

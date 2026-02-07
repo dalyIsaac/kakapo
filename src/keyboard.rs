@@ -101,10 +101,10 @@ fn activate_window(hwnd: HWND) {
 ///
 /// The window is brought to the foreground before sending input.
 /// Newlines are converted to VK_RETURN key events for proper multiline support.
-/// 
+///
 /// The `continue_flag` parameter should be set to `true` to continue typing.
 /// Setting it to `false` will cause the operation to stop early.
-/// 
+///
 /// The `pause_flag` parameter is checked periodically. When `true`, typing pauses
 /// until it becomes `false` again. Additionally, typing automatically pauses
 /// if the target window loses focus.
@@ -128,18 +128,18 @@ pub fn send_unicode_keystrokes(
         if !continue_flag.load(Ordering::SeqCst) {
             return Ok(());
         }
-        
+
         // Check if we should pause (manually paused or focus lost)
         while pause_flag.load(Ordering::SeqCst) || !is_window_focused(hwnd) {
             // Check if we should stop while paused
             if !continue_flag.load(Ordering::SeqCst) {
                 return Ok(());
             }
-            
+
             // Sleep briefly before checking again
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        
+
         if ch == '\n' || ch == '\r' {
             send_enter_key()?;
         } else {
