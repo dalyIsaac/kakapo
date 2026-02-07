@@ -32,8 +32,8 @@ unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> B
 
         if len > 0 {
             let title_str = String::from_utf16_lossy(&title[..len as usize]);
-            // Filter out empty titles and some system windows
-            if !title_str.is_empty() {
+            // Filter out empty titles, Kakapo itself, and some system windows
+            if !title_str.is_empty() && title_str != "Kakapo" {
                 windows.lock().unwrap().push(WindowInfo {
                     title: title_str,
                     hwnd: hwnd.0,

@@ -219,7 +219,7 @@ impl WindowList {
             .child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0xcccccc))
+                    .text_color(rgb(0x333333))  // Dark text
                     .child("Typing Speed (words/min):"),
             )
             .child(
@@ -244,9 +244,9 @@ impl WindowList {
                 div()
                     .text_sm()
                     .text_color(if has_selection {
-                        rgb(0x66cc66)
+                        rgb(0x28a745)  // Green for success
                     } else {
-                        rgb(0xcc6666)
+                        rgb(0xdc3545)  // Red for error
                     })
                     .child(if let Some(title) = selected_title {
                         format!("✓ Selected: {}", title)
@@ -258,7 +258,7 @@ impl WindowList {
             .child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0xffcc66))
+                    .text_color(rgb(0xff8c00))  // Orange for warning
                     .h(px(20.)) // Reserve fixed height
                     .when(is_paused, |div| {
                         div.child("⏸ Paused (click Resume to continue)")
@@ -280,14 +280,14 @@ impl WindowList {
             .flex_col()
             .gap_2()
             .p_4()
-            .bg(rgb(0x3d3d3d))
+            .bg(rgb(0xffffff))  // White background
             .rounded_lg()
             .border_1()
-            .border_color(rgb(0x505050))
+            .border_color(rgb(0xd0d0d0))  // Light gray border
             .child(
                 div()
                     .text_lg()
-                    .text_color(rgb(0xffffff))
+                    .text_color(rgb(0x212529))  // Dark text
                     .mb_2()
                     .child("Kakapo: Send Keystrokes"),
             )
@@ -316,10 +316,10 @@ impl WindowList {
             .flex_col()
             .gap_2()
             .p_4()
-            .bg(rgb(0x3d3d3d))
+            .bg(rgb(0xffffff))  // White background
             .rounded_lg()
             .border_1()
-            .border_color(rgb(0x505050))
+            .border_color(rgb(0xd0d0d0))  // Light gray border
             .child(self.render_buttons(cx, has_selection, is_typing, is_paused))
     }
     
@@ -375,21 +375,21 @@ impl WindowList {
             .p_2()
             .rounded_md()
             .bg(if is_selected {
-                rgb(0x0066cc)
+                rgb(0x007bff)  // Blue for selected
             } else {
-                rgb(0x353535)
+                rgb(0xffffff)  // White for unselected
             })
             .border_1()
             .border_color(if is_selected {
-                rgb(0x0080ff)
+                rgb(0x0056b3)  // Darker blue border
             } else {
-                rgb(0x454545)
+                rgb(0xd0d0d0)  // Light gray border
             })
             .hover(|style| {
                 style.bg(if is_selected {
-                    rgb(0x0080ff)
+                    rgb(0x0056b3)  // Darker blue on hover
                 } else {
-                    rgb(0x404040)
+                    rgb(0xe9ecef)  // Light gray on hover
                 })
             })
             .cursor_pointer()
@@ -402,7 +402,7 @@ impl WindowList {
             )
             .child(
                 div()
-                    .text_color(rgb(0x888888))
+                    .text_color(rgb(0x6c757d))  // Gray for index
                     .flex_shrink_0()
                     .child(format!("{}. ", index + 1)),
             )
@@ -415,7 +415,11 @@ impl WindowList {
                     .flex_grow()
                     .child(
                         div()
-                            .text_color(rgb(0xcccccc))
+                            .text_color(if is_selected { 
+                                rgb(0xffffff)  // White text when selected
+                            } else { 
+                                rgb(0x212529)  // Dark text when not selected
+                            })
                             .w_full()
                             .overflow_hidden()
                             .text_ellipsis()
@@ -425,7 +429,11 @@ impl WindowList {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x666666))
+                            .text_color(if is_selected {
+                                rgb(0xe3f2fd)  // Light blue when selected
+                            } else {
+                                rgb(0x6c757d)  // Gray when not selected
+                            })
                             .child(format!("HWND: 0x{:X}", window_info.hwnd)),
                     ),
             )
@@ -443,10 +451,10 @@ impl WindowList {
             .flex_col()
             .gap_2()
             .p_4()
-            .bg(rgb(0x3d3d3d))
+            .bg(rgb(0xffffff))  // White background
             .rounded_lg()
             .border_1()
-            .border_color(rgb(0x505050))
+            .border_color(rgb(0xd0d0d0))  // Light gray border
             .flex_grow()
             .flex_shrink()
             .min_h(px(200.))  // Ensure minimum height
@@ -454,7 +462,7 @@ impl WindowList {
             .child(
                 div()
                     .text_lg()
-                    .text_color(rgb(0xffffff))
+                    .text_color(rgb(0x212529))  // Dark text
                     .mb_2()
                     .flex_shrink_0()
                     .child("Window List"),
@@ -519,7 +527,7 @@ impl Render for WindowList {
 
         v_flex()
             .gap_3()
-            .bg(rgb(0x2d2d2d))
+            .bg(rgb(0xf5f5f5))  // Light background
             .size_full()
             .p_4()
             // 1. Header, 2. Textbox, 3. Typing speed, 4. Messages (all in render_input_section)
