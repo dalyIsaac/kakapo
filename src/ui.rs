@@ -339,7 +339,7 @@ impl WindowList {
             .child(
                 div()
                     .flex()
-                    .child(Input::new(&self.input_state).h(px(100.)).w_full()),
+                    .child(Input::new(&self.input_state).h(px(200.)).w_full()),
             )
             // Typing speed controls
             .child(self.render_typing_speed_controls(cx))
