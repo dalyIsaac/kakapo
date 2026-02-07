@@ -122,11 +122,10 @@ pub fn send_unicode_keystrokes(
     let total_chars = text.chars().count();
 
     // Process each character, converting newlines to Enter key events
-    let mut chars = text.chars().peekable();
-    let mut char_index = 0;
+    let chars = text.chars().peekable();
     let mut is_first_char = true;
 
-    while let Some(ch) = chars.next() {
+    for (char_index, ch) in chars.enumerate() {
         // Check if we should continue typing
         if !continue_flag.load(Ordering::SeqCst) {
             return Ok(());
@@ -178,34 +177,11 @@ pub fn send_unicode_keystrokes(
             activate_window(hwnd);
         }
 
-        // Read newline mode from config (fallback to Windows-style if lock fails)
-        let use_windows_newlines = if let Ok(config_guard) = config.lock() {
-            config_guard.use_windows_newlines
+        // Handle newlines (Unix-style: only \n is treated as a newline)
+        if ch == '\n' {
+            send_enter_key()?;
         } else {
-            true
-        };
-
-        // Handle newlines based on current mode
-        if use_windows_newlines {
-            // Windows-style: treat \r, \n, and \r\n as a single logical Enter
-            if ch == '\r' {
-                // If we see \r, check if it's followed by \n and consume it
-                if chars.peek() == Some(&'\n') {
-                    chars.next(); // Consume the \n
-                }
-                send_enter_key()?;
-            } else if ch == '\n' {
-                send_enter_key()?;
-            } else {
-                send_unicode_char(ch)?;
-            }
-        } else {
-            // Unix-style: only \n is treated as a newline; \r is sent literally
-            if ch == '\n' {
-                send_enter_key()?;
-            } else {
-                send_unicode_char(ch)?;
-            }
+            send_unicode_char(ch)?;
         }
 
         // Variable delay between characters based on typing configuration
@@ -217,8 +193,6 @@ pub fn send_unicode_keystrokes(
             std::time::Duration::from_millis(50)
         };
         std::thread::sleep(delay);
-
-        char_index += 1;
     }
 
     Ok(())

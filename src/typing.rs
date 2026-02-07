@@ -16,8 +16,6 @@ pub struct TypingConfig {
     pub words_per_minute: f64,
     /// Whether to enable jitter
     pub enable_jitter: bool,
-    /// Whether to use Windows-style newlines (\r\n) or Unix-style (\n)
-    pub use_windows_newlines: bool,
 }
 
 impl Default for TypingConfig {
@@ -25,7 +23,6 @@ impl Default for TypingConfig {
         Self {
             words_per_minute: DEFAULT_WORDS_PER_MINUTE,
             enable_jitter: true,
-            use_windows_newlines: false, // Default to Unix-style \n
         }
     }
 }

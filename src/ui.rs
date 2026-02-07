@@ -250,65 +250,23 @@ impl WindowList {
         }
     }
 
-    fn toggle_newline_mode(&mut self, cx: &mut Context<Self>) {
-        if let Ok(mut config) = self.typing_config.lock() {
-            config.use_windows_newlines = !config.use_windows_newlines;
-        }
-        cx.notify();
-    }
-
     /// Render the typing speed configuration controls
-    fn render_typing_speed_controls(&self, cx: &Context<Self>) -> impl IntoElement {
-        let use_windows_newlines = self
-            .typing_config
-            .lock()
-            .map(|c| c.use_windows_newlines)
-            .unwrap_or(false);
-
+    fn render_typing_speed_controls(&self, _cx: &Context<Self>) -> impl IntoElement {
         div()
             .flex()
-            .gap_4() // Changed from flex_col to horizontal layout
+            .gap_2()
             .items_center()
             .mb_2()
             .child(
                 div()
-                    .flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(rgb(0xcccccc))
-                            .child("Typing Speed (words/min):"),
-                    )
-                    .child(
-                        div()
-                            .w(px(100.))
-                            .child(Input::new(&self.words_per_minute_input)),
-                    ),
+                    .text_sm()
+                    .text_color(rgb(0xcccccc))
+                    .child("Typing Speed (words/min):"),
             )
             .child(
                 div()
-                    .flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(rgb(0xcccccc))
-                            .child("Newline Mode:"),
-                    )
-                    .child(
-                        Button::new("newline_toggle")
-                            .label(if use_windows_newlines {
-                                "CRLF (Windows)"
-                            } else {
-                                "LF (Unix)"
-                            })
-                            .on_click(cx.listener(|view, _event, _window, cx| {
-                                view.toggle_newline_mode(cx);
-                            })),
-                    ),
+                    .w(px(100.))
+                    .child(Input::new(&self.words_per_minute_input)),
             )
     }
 
@@ -583,7 +541,9 @@ impl Render for WindowList {
 
         // Requirement 2: Check if target window has lost focus while typing
         // If so, treat it as paused for UI purposes (button shows "Resume")
-        let target_has_focus = if is_typing && has_selection {
+        // Only apply this if we have an active typing session (prevents flash when Stop is clicked)
+        let target_has_focus = if is_typing && has_selection && self.current_session_token.is_some()
+        {
             if let Some(ref window) = self.selected_window {
                 use crate::window_manager::is_window_focused;
                 is_window_focused(HWND(window.hwnd as _))
@@ -595,7 +555,7 @@ impl Render for WindowList {
         };
 
         // If target lost focus while typing, show as paused in UI
-        if is_typing && !target_has_focus {
+        if is_typing && !target_has_focus && self.current_session_token.is_some() {
             is_paused = true;
         }
 
