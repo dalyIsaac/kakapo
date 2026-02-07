@@ -7,6 +7,8 @@ use gpui_component::{
     input::{Input, InputState},
     v_flex, Disableable,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 
@@ -18,6 +20,7 @@ pub struct WindowList {
     last_refresh: Instant,
     typing_config: TypingConfig,
     words_per_minute_input: Entity<InputState>,
+    is_typing: Arc<AtomicBool>,
 }
 
 impl WindowList {
@@ -43,6 +46,7 @@ impl WindowList {
             last_refresh: Instant::now(),
             typing_config,
             words_per_minute_input,
+            is_typing: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -71,14 +75,27 @@ impl WindowList {
             if !text.is_empty() {
                 let hwnd = window.hwnd;
                 let config = self.typing_config.clone();
+                let is_typing = self.is_typing.clone();
+                
+                // Mark that we're starting to type
+                is_typing.store(true, Ordering::SeqCst);
+                cx.notify();
+                
                 // Spawn background thread to avoid blocking UI
                 std::thread::spawn(move || {
-                    if let Err(e) = send_unicode_keystrokes(HWND(hwnd as _), &text, &config) {
+                    if let Err(e) = send_unicode_keystrokes(HWND(hwnd as _), &text, &config, &is_typing) {
                         eprintln!("Error sending keystrokes: {}", e);
                     }
+                    // Mark that we've stopped typing
+                    is_typing.store(false, Ordering::SeqCst);
                 });
             }
         }
+    }
+
+    fn stop_typing(&mut self, cx: &mut Context<Self>) {
+        self.is_typing.store(false, Ordering::SeqCst);
+        cx.notify();
     }
 
     fn handle_send_click(
@@ -142,8 +159,8 @@ impl WindowList {
             )
     }
 
-    /// Render the text input and send button
-    fn render_text_input(&self, cx: &Context<Self>, has_selection: bool) -> impl IntoElement {
+    /// Render the text input and send/stop buttons
+    fn render_text_input(&self, cx: &Context<Self>, has_selection: bool, is_typing: bool) -> impl IntoElement {
         div()
             .flex()
             .gap_2()
@@ -158,8 +175,16 @@ impl WindowList {
                 Button::new("send")
                     .primary()
                     .label("Send")
-                    .disabled(!has_selection)
+                    .disabled(!has_selection || is_typing)
                     .on_click(cx.listener(Self::handle_send_click)),
+            )
+            .child(
+                Button::new("stop")
+                    .label("Stop")
+                    .disabled(!is_typing)
+                    .on_click(cx.listener(|view, _event, _window, cx| {
+                        view.stop_typing(cx);
+                    })),
             )
     }
 
@@ -192,6 +217,7 @@ impl WindowList {
         jitter_enabled: bool,
         has_selection: bool,
         selected_title: Option<String>,
+        is_typing: bool,
     ) -> impl IntoElement {
         div()
             .flex()
@@ -210,7 +236,7 @@ impl WindowList {
                     .child("Kakapo: Send Keystrokes"),
             )
             .child(self.render_typing_speed_controls(cx, jitter_enabled))
-            .child(self.render_text_input(cx, has_selection))
+            .child(self.render_text_input(cx, has_selection, is_typing))
             .child(self.render_status_messages(selected_title, has_selection))
     }
 
@@ -340,13 +366,14 @@ impl Render for WindowList {
         let has_selection = self.selected_window.is_some();
         let selected_title = self.selected_window.as_ref().map(|w| w.title.clone());
         let jitter_enabled = self.typing_config.enable_jitter;
+        let is_typing = self.is_typing.load(Ordering::SeqCst);
 
         v_flex()
             .gap_3()
             .bg(rgb(0x2d2d2d))
             .size_full()
             .p_4()
-            .child(self.render_input_section(cx, jitter_enabled, has_selection, selected_title))
+            .child(self.render_input_section(cx, jitter_enabled, has_selection, selected_title, is_typing))
             .child(self.render_window_list_section(cx, windows, selected_hwnd))
     }
 }
