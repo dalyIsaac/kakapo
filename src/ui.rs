@@ -25,6 +25,7 @@ pub struct WindowList {
     last_text: String,
     last_wpm_input: String,
     current_target_hwnd: Arc<Mutex<Option<isize>>>,
+    current_session_token: Option<Arc<AtomicBool>>,
 }
 
 impl WindowList {
@@ -70,6 +71,7 @@ impl WindowList {
             last_text: String::new(),
             last_wpm_input: String::new(),
             current_target_hwnd: Arc::new(Mutex::new(None)),
+            current_session_token: None,
         }
     }
 
@@ -100,6 +102,11 @@ impl WindowList {
                 let is_paused = self.is_paused.clone();
                 let target_hwnd = self.current_target_hwnd.clone();
 
+                // Create a new per-session cancellation token
+                // This prevents old sessions from continuing when a new one starts
+                let session_continue_flag = Arc::new(AtomicBool::new(true));
+                let session_flag_clone = session_continue_flag.clone();
+
                 // Mark that we're starting to type and not paused
                 is_typing.store(true, Ordering::SeqCst);
                 is_paused.store(false, Ordering::SeqCst);
@@ -118,7 +125,7 @@ impl WindowList {
                         HWND(hwnd as _),
                         &text,
                         &config,
-                        &is_typing,
+                        &session_continue_flag,
                         &is_paused,
                         &target_hwnd,
                     ) {
@@ -132,11 +139,19 @@ impl WindowList {
                         *target = None;
                     }
                 });
+
+                // Store the session cancellation token so stop_typing can cancel it
+                self.current_session_token = Some(session_flag_clone);
             }
         }
     }
 
     fn stop_typing(&mut self, cx: &mut Context<Self>) {
+        // Cancel the current session
+        if let Some(ref token) = self.current_session_token {
+            token.store(false, Ordering::SeqCst);
+        }
+        self.current_session_token = None;
         self.is_typing.store(false, Ordering::SeqCst);
         self.is_paused.store(false, Ordering::SeqCst);
         self.last_text.clear();
@@ -378,7 +393,6 @@ impl WindowList {
         has_selection: bool,
         is_typing: bool,
         is_paused: bool,
-        window_is_active: bool,
     ) -> impl IntoElement {
         div()
             .flex()
@@ -389,7 +403,7 @@ impl WindowList {
             .rounded_lg()
             .border_1()
             .border_color(rgb(0x505050))
-            .child(self.render_buttons(cx, has_selection, is_typing, is_paused, window_is_active))
+            .child(self.render_buttons(cx, has_selection, is_typing, is_paused))
     }
 
     /// Render just the buttons section
@@ -398,8 +412,7 @@ impl WindowList {
         cx: &Context<Self>,
         has_selection: bool,
         is_typing: bool,
-        _is_paused: bool,
-        window_is_active: bool,
+        is_paused: bool,
     ) -> impl IntoElement {
         div()
             .flex()
@@ -420,7 +433,7 @@ impl WindowList {
                         view.stop_typing(cx);
                     })),
             )
-            .when(is_typing && window_is_active, |div| {
+            .when(is_typing && is_paused, |div| {
                 div.child(Button::new("resume").label("Resume").on_click(cx.listener(
                     |view, _event, _window, cx| {
                         view.toggle_pause(cx);
@@ -547,7 +560,7 @@ impl WindowList {
 }
 
 impl Render for WindowList {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Check if text has changed while typing - if so, reset state
         self.check_text_changed(cx);
 
@@ -586,8 +599,6 @@ impl Render for WindowList {
             is_paused = true;
         }
 
-        let window_is_active = window.is_window_active();
-
         v_flex()
             .gap_3()
             .bg(rgb(0x2d2d2d))
@@ -604,13 +615,7 @@ impl Render for WindowList {
             // 5. Window list
             .child(self.render_window_list_section(cx, windows, selected_hwnd))
             // 6. Buttons
-            .child(self.render_buttons_standalone(
-                cx,
-                has_selection,
-                is_typing,
-                is_paused,
-                window_is_active,
-            ))
+            .child(self.render_buttons_standalone(cx, has_selection, is_typing, is_paused))
     }
 }
 

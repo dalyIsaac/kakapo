@@ -156,6 +156,19 @@ pub fn send_unicode_keystrokes(
                 return Ok(());
             }
 
+            // Re-read target window in case it changed during pause
+            let new_hwnd = if let Ok(target) = target_hwnd.lock() {
+                HWND(target.unwrap_or(initial_hwnd.0) as _)
+            } else {
+                initial_hwnd
+            };
+
+            // If target window changed, update hwnd and break out of pause
+            if new_hwnd.0 != hwnd.0 {
+                // Target changed, will reactivate the new target after pause loop
+                break;
+            }
+
             // Sleep briefly before checking again
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
