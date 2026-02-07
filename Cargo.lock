@@ -3009,7 +3009,6 @@ dependencies = [
  "gpui",
  "gpui-component",
  "gpui-component-assets",
- "unicode-segmentation",
  "windows 0.57.0",
 ]
 

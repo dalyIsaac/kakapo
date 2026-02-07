@@ -1,10 +1,9 @@
 use gpui::{
     div, prelude::*, px, rgb, size, App, Application, Bounds, Context, Entity, FocusHandle,
-    Focusable, Subscription, Window, WindowBounds, WindowOptions,
+    Focusable, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::{
-    button::Button,
-    button::ButtonVariants,
+    button::{Button, ButtonVariants},
     input::{Input, InputState},
     v_flex, Disableable, Root,
 };
@@ -14,6 +13,7 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+    VIRTUAL_KEY, VK_RETURN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowTextW, IsWindowVisible, SetForegroundWindow,
@@ -65,8 +65,10 @@ unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> B
 /// like Amazon Workspaces and Azure Virtual Desktop because it uses
 /// KEYEVENTF_UNICODE which injects keystrokes at the lowest level.
 ///
+/// Newlines are converted to VK_RETURN key events for proper multiline support.
+///
 /// Reference: https://github.com/keepassxreboot/keepassxc
-fn send_unicode_keystrokes(hwnd: HWND, text: &str) {
+fn send_unicode_keystrokes(hwnd: HWND, text: &str) -> Result<(), String> {
     unsafe {
         // Bring the target window to the foreground
         let _ = SetForegroundWindow(hwnd);
@@ -74,50 +76,104 @@ fn send_unicode_keystrokes(hwnd: HWND, text: &str) {
         // Small delay to let the window activation complete
         std::thread::sleep(std::time::Duration::from_millis(100));
 
-        // Convert to UTF-16 to properly handle emoji and non-BMP characters (surrogate pairs)
-        let utf16_chars: Vec<u16> = text.encode_utf16().collect();
-        
-        // Send each UTF-16 code unit as a keystroke
-        for &code_unit in &utf16_chars {
-            let mut inputs = Vec::new();
+        // Process each character, converting newlines to Enter key events
+        for ch in text.chars() {
+            if ch == '\n' || ch == '\r' {
+                // Send Enter key (VK_RETURN) for newlines
+                let mut inputs = Vec::new();
 
-            // Key down event
-            let input_down = INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: windows::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
-                    ki: KEYBDINPUT {
-                        wVk: Default::default(),
-                        wScan: code_unit,
-                        dwFlags: KEYEVENTF_UNICODE,
-                        time: 0,
-                        dwExtraInfo: 0,
+                // Key down event for Enter
+                let input_down = INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: windows::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_RETURN,
+                            wScan: 0,
+                            dwFlags: Default::default(),
+                            time: 0,
+                            dwExtraInfo: 0,
+                        },
                     },
-                },
-            };
-            inputs.push(input_down);
+                };
+                inputs.push(input_down);
 
-            // Key up event
-            let input_up = INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: windows::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
-                    ki: KEYBDINPUT {
-                        wVk: Default::default(),
-                        wScan: code_unit,
-                        dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
-                        time: 0,
-                        dwExtraInfo: 0,
+                // Key up event for Enter
+                let input_up = INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: windows::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VK_RETURN,
+                            wScan: 0,
+                            dwFlags: KEYEVENTF_KEYUP,
+                            time: 0,
+                            dwExtraInfo: 0,
+                        },
                     },
-                },
-            };
-            inputs.push(input_up);
+                };
+                inputs.push(input_up);
 
-            // Send the input events
-            let _ = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+                // Send the input events and check for errors
+                let sent = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+                if sent != 2 {
+                    return Err(format!(
+                        "Failed to send Enter key: expected 2 events, sent {}",
+                        sent
+                    ));
+                }
+            } else {
+                // Send as Unicode for all other characters
+                let utf16_chars: Vec<u16> = ch.encode_utf16(&mut [0u16; 2]).to_vec();
+                
+                for &code_unit in &utf16_chars {
+                    let mut inputs = Vec::new();
 
-            // Small delay between code units for reliability
+                    // Key down event
+                    let input_down = INPUT {
+                        r#type: INPUT_KEYBOARD,
+                        Anonymous: windows::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
+                            ki: KEYBDINPUT {
+                                wVk: VIRTUAL_KEY(0),
+                                wScan: code_unit,
+                                dwFlags: KEYEVENTF_UNICODE,
+                                time: 0,
+                                dwExtraInfo: 0,
+                            },
+                        },
+                    };
+                    inputs.push(input_down);
+
+                    // Key up event
+                    let input_up = INPUT {
+                        r#type: INPUT_KEYBOARD,
+                        Anonymous: windows::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
+                            ki: KEYBDINPUT {
+                                wVk: VIRTUAL_KEY(0),
+                                wScan: code_unit,
+                                dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                                time: 0,
+                                dwExtraInfo: 0,
+                            },
+                        },
+                    };
+                    inputs.push(input_up);
+
+                    // Send the input events and check for errors
+                    let sent = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+                    if sent != 2 {
+                        return Err(format!(
+                            "Failed to send character '{}': expected 2 events, sent {}",
+                            ch, sent
+                        ));
+                    }
+                }
+            }
+
+            // Small delay between characters for reliability
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
+
+    Ok(())
 }
 
 struct WindowList {
@@ -126,7 +182,6 @@ struct WindowList {
     focus_handle: FocusHandle,
     cached_windows: Vec<WindowInfo>,
     last_refresh: Instant,
-    _subscriptions: Vec<Subscription>,
 }
 
 impl WindowList {
@@ -135,15 +190,12 @@ impl WindowList {
             .placeholder("Type text to send...")
             .multi_line(true));
 
-        let _subscriptions = vec![];
-
         Self {
             selected_window: None,
             input_state,
             focus_handle: cx.focus_handle(),
             cached_windows: get_system_windows(),
             last_refresh: Instant::now(),
-            _subscriptions,
         }
     }
 
@@ -169,7 +221,9 @@ impl WindowList {
                 let hwnd = window.hwnd;
                 // Spawn background thread to avoid blocking UI
                 std::thread::spawn(move || {
-                    send_unicode_keystrokes(HWND(hwnd as _), &text);
+                    if let Err(e) = send_unicode_keystrokes(HWND(hwnd as _), &text) {
+                        eprintln!("Error sending keystrokes: {}", e);
+                    }
                 });
             }
         }
@@ -398,23 +452,21 @@ fn main() {
             ..Default::default()
         };
 
-        cx.spawn(async move |cx| {
-            cx.update(|cx| {
-                cx.open_window(window_options, |window, cx| {
-                    let view = cx.new(|cx| WindowList::new(window, cx));
-                    
-                    // Focus the input on window open
-                    let focus_handle = view.read(cx).input_state.focus_handle(cx);
-                    window.focus(&focus_handle);
-                    
-                    // Wrap the view in Root as required by gpui-component
-                    cx.new(|cx| Root::new(view, window, cx))
-                })
-            })
-            .ok();
-
-            Ok::<_, anyhow::Error>(())
-        })
-        .detach();
+        // Open window directly without detached spawn
+        match cx.open_window(window_options, |window, cx| {
+            let view = cx.new(|cx| WindowList::new(window, cx));
+            
+            // Focus the input on window open
+            let focus_handle = view.read(cx).input_state.focus_handle(cx);
+            window.focus(&focus_handle);
+            
+            // Wrap the view in Root as required by gpui-component
+            cx.new(|cx| Root::new(view, window, cx))
+        }) {
+            Ok(_) => {},
+            Err(e) => {
+                eprintln!("Failed to create window: {:?}", e);
+            }
+        }
     });
 }
