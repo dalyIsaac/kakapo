@@ -10,6 +10,9 @@ A Windows application for viewing system windows and sending keystrokes to them.
 - **Virtual Keystroke Support**: Send keystrokes that work with virtual machines and remote desktop applications
 - **Typing Speed Control**: Configure typing speed in characters per minute (default: 300 CPM, ~60 WPM)
 - **Natural Typing Variability**: Enable/disable jitter for more realistic, human-like typing patterns with "spurt" behavior
+- **Pause/Resume**: Manually pause and resume typing with the Pause/Resume button
+- **Auto-Pause on Focus Loss**: Typing automatically pauses when the target window loses focus and resumes when focus returns
+- **Stop**: Cancel typing at any time with the Stop button
 
 ## How It Works
 
@@ -36,6 +39,9 @@ The application simulates realistic human typing behavior through:
 4. **Enable/disable jitter** (optional): Click the "Jitter" button to toggle natural typing variability
 5. **Type your text**: Enter the text you want to send in the input field
 6. **Send keystrokes**: Click the "Send" button
+7. **Pause/Resume** (optional): Click the "Pause" button to pause typing, or "Resume" to continue
+   - Typing automatically pauses if the target window loses focus and resumes when focus returns
+8. **Stop** (optional): Click the "Stop" button to cancel typing completely
 
 ## Building
 
@@ -68,7 +74,9 @@ The keystroke sending functionality is inspired by [KeePassXC's approach](https:
 2. **SendInput with KEYEVENTF_UNICODE**: Sends each character as a Unicode keystroke
 3. **Key Events**: Each character is sent as a key-down followed by key-up event
 4. **Timing**: Small delays between characters ensure reliability
-5. **Stop Functionality**: Typing can be cancelled mid-operation using the Stop button
+5. **Pause Functionality**: Typing can be paused manually or automatically when focus is lost
+6. **Stop Functionality**: Typing can be cancelled mid-operation using the Stop button
+7. **Focus Monitoring**: Continuously checks if the target window has focus and auto-pauses when lost
 
 ### Why KEYEVENTF_UNICODE?
 
