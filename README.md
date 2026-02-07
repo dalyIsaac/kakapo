@@ -1,3 +1,85 @@
 # Kakapo
 
-Kakapo is a Windows application to send text entered in a text box to a specified window as keystrokes.
+A Windows application for viewing system windows and sending keystrokes to them. Built with [GPUI](https://github.com/zed-industries/zed) framework.
+
+## Features
+
+- **Window List**: View all visible windows on your system
+- **Window Selection**: Click any window to select it as the target
+- **Keystroke Input**: Type text in the input field to send to the selected window
+- **Virtual Keystroke Support**: Send keystrokes that work with virtual machines and remote desktop applications
+
+## How It Works
+
+Kakapo uses the Windows `SendInput` API with the `KEYEVENTF_UNICODE` flag to send keystrokes at the lowest level. This approach ensures compatibility with:
+
+- Virtual machines (VMware, VirtualBox, Hyper-V)
+- Remote desktop applications (Amazon Workspaces, Azure Virtual Desktop)
+- Standard Windows applications
+
+## Usage
+
+1. **Launch the application**: Run `cargo run --release` or execute the built binary
+2. **Select a target window**: Click on any window in the list to select it
+3. **Type your text**: Enter the text you want to send in the input field
+4. **Send keystrokes**: Click the "Send" button
+
+## Building
+
+### Prerequisites
+
+- Rust toolchain (1.93.0 or compatible)
+- Windows operating system
+
+### Build Instructions
+
+```bash
+# Clone the repository
+git clone https://github.com/dalyIsaac/kakapo.git
+cd kakapo
+
+# Build the project
+cargo build --release
+
+# Run the application
+cargo run --release
+```
+
+## Technical Details
+
+### Virtual Keystroke Implementation
+
+The keystroke sending functionality is inspired by [KeePassXC's approach](https://github.com/keepassxreboot/keepassxc) to keystroke injection. Key technical details:
+
+1. **SetForegroundWindow**: Brings the target window to the foreground
+2. **SendInput with KEYEVENTF_UNICODE**: Sends each character as a Unicode keystroke
+3. **Key Events**: Each character is sent as a key-down followed by key-up event
+4. **Timing**: Small delays between characters ensure reliability
+
+### Why KEYEVENTF_UNICODE?
+
+The `KEYEVENTF_UNICODE` flag tells Windows to inject keystrokes at the lowest level, bypassing most keyboard hooks and filters. This makes it work reliably with:
+
+- Applications running in virtual machines
+- Remote desktop sessions
+- Applications with custom keyboard handling
+
+### Dependencies
+
+- **gpui**: GPU-accelerated UI framework from Zed
+- **windows**: Windows API bindings for Rust
+
+## Limitations
+
+- **Windows Only**: This application uses Windows-specific APIs and will not run on other operating systems
+- **Foreground Focus**: The target window must be brought to the foreground to receive keystrokes
+- **No Special Keys**: Currently only supports sending Unicode characters (letters, numbers, symbols)
+
+## License
+
+See LICENSE file for details.
+
+## Acknowledgments
+
+- Inspired by [KeePassXC](https://github.com/keepassxreboot/keepassxc) for the keystroke injection approach
+- Built with [GPUI](https://github.com/zed-industries/zed) framework
