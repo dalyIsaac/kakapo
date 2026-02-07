@@ -208,24 +208,60 @@ impl WindowList {
             }
         }
     }
+    
+    fn toggle_newline_mode(&mut self, cx: &mut Context<Self>) {
+        if let Ok(mut config) = self.typing_config.lock() {
+            config.use_windows_newlines = !config.use_windows_newlines;
+        }
+        cx.notify();
+    }
 
     /// Render the typing speed configuration controls
-    fn render_typing_speed_controls(&self, _cx: &Context<Self>) -> impl IntoElement {
+    fn render_typing_speed_controls(&self, cx: &Context<Self>) -> impl IntoElement {
+        let use_windows_newlines = self.typing_config.lock()
+            .map(|c| c.use_windows_newlines)
+            .unwrap_or(false);
+        
         div()
             .flex()
+            .flex_col()
             .gap_2()
-            .items_center()
             .mb_2()
             .child(
                 div()
-                    .text_sm()
-                    .text_color(rgb(0x333333))  // Dark text
-                    .child("Typing Speed (words/min):"),
+                    .flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0x333333))  // Dark text
+                            .child("Typing Speed (words/min):"),
+                    )
+                    .child(
+                        div()
+                            .w(px(100.))
+                            .child(Input::new(&self.words_per_minute_input)),
+                    )
             )
             .child(
                 div()
-                    .w(px(100.))
-                    .child(Input::new(&self.words_per_minute_input)),
+                    .flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0x333333))
+                            .child("Newline Mode:"),
+                    )
+                    .child(
+                        Button::new("newline_toggle")
+                            .label(if use_windows_newlines { "\\r\\n (Windows)" } else { "\\n (Unix)" })
+                            .on_click(cx.listener(|view, _event, _window, cx| {
+                                view.toggle_newline_mode(cx);
+                            }))
+                    )
             )
     }
 

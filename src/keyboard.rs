@@ -120,10 +120,26 @@ pub fn send_unicode_keystrokes(
     activate_window(hwnd);
 
     let rng = SimpleRng::new();
-    let total_chars = text.chars().count();
+    
+    // Get the newline mode from config
+    let use_windows_newlines = config.lock().map(|c| c.use_windows_newlines).unwrap_or(false);
+    
+    // Process text and normalize newlines based on the mode
+    let processed_text = if use_windows_newlines {
+        // Convert all newlines to \r\n
+        text.replace("\r\n", "\n").replace('\n', "\r\n")
+    } else {
+        // Convert all newlines to \n
+        text.replace("\r\n", "\n")
+    };
+    
+    let total_chars = processed_text.chars().count();
 
     // Process each character, converting newlines to Enter key events
-    for (char_index, ch) in text.chars().enumerate() {
+    let mut chars = processed_text.chars().peekable();
+    let mut char_index = 0;
+    
+    while let Some(ch) = chars.next() {
         // Check if we should continue typing
         if !continue_flag.load(Ordering::SeqCst) {
             return Ok(());
@@ -140,7 +156,13 @@ pub fn send_unicode_keystrokes(
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
-        if ch == '\n' || ch == '\r' {
+        // Handle newlines: if we see \r, check if it's followed by \n and send Enter once
+        if ch == '\r' {
+            if chars.peek() == Some(&'\n') {
+                chars.next(); // Consume the \n
+            }
+            send_enter_key()?;
+        } else if ch == '\n' {
             send_enter_key()?;
         } else {
             send_unicode_char(ch)?;
@@ -155,6 +177,8 @@ pub fn send_unicode_keystrokes(
             std::time::Duration::from_millis(50)
         };
         std::thread::sleep(delay);
+        
+        char_index += 1;
     }
 
     Ok(())
