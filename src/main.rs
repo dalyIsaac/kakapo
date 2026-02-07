@@ -23,6 +23,11 @@ fn main() {
         let window_options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(500.0), px(500.0))),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some("Kakapo".into()),
+                appears_transparent: false,
+                traffic_light_position: None,
+            }),
             ..Default::default()
         };
 

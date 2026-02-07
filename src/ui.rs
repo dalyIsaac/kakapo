@@ -504,6 +504,7 @@ impl Render for WindowList {
             .bg(rgb(0x2d2d2d))
             .size_full()
             .p_4()
+            .child(self.render_window_list_section(cx, windows, selected_hwnd))
             .child(self.render_input_section(
                 cx,
                 has_selection,
@@ -511,7 +512,6 @@ impl Render for WindowList {
                 is_typing,
                 is_paused,
             ))
-            .child(self.render_window_list_section(cx, windows, selected_hwnd))
     }
 }
 
