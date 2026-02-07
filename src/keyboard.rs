@@ -189,13 +189,8 @@ pub fn send_unicode_keystrokes(
         }
 
         // Check if we should pause (manually paused or focus lost)
-        let was_paused = wait_while_paused(
-            initial_hwnd,
-            hwnd,
-            continue_flag,
-            pause_flag,
-            target_hwnd,
-        )?;
+        let was_paused =
+            wait_while_paused(initial_hwnd, hwnd, continue_flag, pause_flag, target_hwnd)?;
 
         // If we were paused (either manually or due to focus loss), reactivate window
         if was_paused {
