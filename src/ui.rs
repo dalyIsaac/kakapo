@@ -378,7 +378,7 @@ impl WindowList {
         has_selection: bool,
         is_typing: bool,
         is_paused: bool,
-        target_has_focus: bool,
+        window_is_active: bool,
     ) -> impl IntoElement {
         div()
             .flex()
@@ -389,7 +389,7 @@ impl WindowList {
             .rounded_lg()
             .border_1()
             .border_color(rgb(0x505050))
-            .child(self.render_buttons(cx, has_selection, is_typing, is_paused, target_has_focus))
+            .child(self.render_buttons(cx, has_selection, is_typing, is_paused, window_is_active))
     }
 
     /// Render just the buttons section
@@ -398,8 +398,8 @@ impl WindowList {
         cx: &Context<Self>,
         has_selection: bool,
         is_typing: bool,
-        is_paused: bool,
-        target_has_focus: bool,
+        _is_paused: bool,
+        window_is_active: bool,
     ) -> impl IntoElement {
         div()
             .flex()
@@ -413,14 +413,6 @@ impl WindowList {
                     .on_click(cx.listener(Self::handle_send_click)),
             )
             .child(
-                Button::new("pause")
-                    .label(if is_paused { "Resume" } else { "Pause" })
-                    .disabled(!is_typing || (is_typing && !target_has_focus))
-                    .on_click(cx.listener(|view, _event, _window, cx| {
-                        view.toggle_pause(cx);
-                    })),
-            )
-            .child(
                 Button::new("stop")
                     .label("Stop")
                     .disabled(!is_typing)
@@ -428,6 +420,13 @@ impl WindowList {
                         view.stop_typing(cx);
                     })),
             )
+            .when(is_typing && window_is_active, |div| {
+                div.child(Button::new("resume").label("Resume").on_click(cx.listener(
+                    |view, _event, _window, cx| {
+                        view.toggle_pause(cx);
+                    },
+                )))
+            })
     }
 
     /// Render a single window item in the list
@@ -548,7 +547,7 @@ impl WindowList {
 }
 
 impl Render for WindowList {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Check if text has changed while typing - if so, reset state
         self.check_text_changed(cx);
 
@@ -587,6 +586,8 @@ impl Render for WindowList {
             is_paused = true;
         }
 
+        let window_is_active = window.is_window_active();
+
         v_flex()
             .gap_3()
             .bg(rgb(0x2d2d2d))
@@ -608,7 +609,7 @@ impl Render for WindowList {
                 has_selection,
                 is_typing,
                 is_paused,
-                target_has_focus,
+                window_is_active,
             ))
     }
 }
