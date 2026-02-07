@@ -7,15 +7,15 @@ use gpui_component::{
     input::{Input, InputState},
     v_flex, Disableable,
 };
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use windows::Win32::Foundation::HWND;
 
 pub struct WindowList {
     selected_window: Option<WindowInfo>,
     input_state: Entity<InputState>,
     focus_handle: FocusHandle,
-    cached_windows: Vec<WindowInfo>,
-    last_refresh: Instant,
+    cached_windows: Arc<Mutex<Vec<WindowInfo>>>,
     typing_config: TypingConfig,
     words_per_minute_input: Entity<InputState>,
 }
@@ -35,12 +35,26 @@ impl WindowList {
                 .default_value(typing_config.words_per_minute.to_string())
         });
 
+        let cached_windows = Arc::new(Mutex::new(get_system_windows()));
+        
+        // Start background thread to periodically refresh window list
+        // This keeps the expensive Windows API call off the UI thread
+        let windows_clone = Arc::clone(&cached_windows);
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(1));
+                let windows = get_system_windows();
+                if let Ok(mut cached) = windows_clone.lock() {
+                    *cached = windows;
+                }
+            }
+        });
+
         Self {
             selected_window: None,
             input_state,
             focus_handle: cx.focus_handle(),
-            cached_windows: get_system_windows(),
-            last_refresh: Instant::now(),
+            cached_windows,
             typing_config,
             words_per_minute_input,
         }
@@ -48,16 +62,6 @@ impl WindowList {
 
     pub fn input_state(&self) -> &Entity<InputState> {
         &self.input_state
-    }
-
-    fn refresh_windows_if_needed(&mut self, cx: &mut Context<Self>) {
-        // Refresh window list if it's been more than 1 second since last refresh
-        // This will catch window focus changes
-        if self.last_refresh.elapsed() > Duration::from_secs(1) {
-            self.cached_windows = get_system_windows();
-            self.last_refresh = Instant::now();
-            cx.notify();
-        }
     }
 
     fn select_window(&mut self, window_info: WindowInfo, cx: &mut Context<Self>) {
@@ -332,10 +336,8 @@ impl WindowList {
 
 impl Render for WindowList {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Refresh window list if needed (detects window focus changes)
-        self.refresh_windows_if_needed(cx);
-
-        let windows = &self.cached_windows;
+        // Read the cached windows from the background thread
+        let windows = self.cached_windows.lock().unwrap().clone();
         let selected_hwnd = self.selected_window.as_ref().map(|w| w.hwnd);
         let has_selection = self.selected_window.is_some();
         let selected_title = self.selected_window.as_ref().map(|w| w.title.clone());
@@ -347,7 +349,7 @@ impl Render for WindowList {
             .size_full()
             .p_4()
             .child(self.render_input_section(cx, jitter_enabled, has_selection, selected_title))
-            .child(self.render_window_list_section(cx, windows, selected_hwnd))
+            .child(self.render_window_list_section(cx, &windows, selected_hwnd))
     }
 }
 
