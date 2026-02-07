@@ -23,6 +23,7 @@ pub struct WindowList {
     is_typing: Arc<AtomicBool>,
     is_paused: Arc<AtomicBool>,
     last_text: String,
+    last_wpm_input: String,
 }
 
 impl WindowList {
@@ -66,6 +67,7 @@ impl WindowList {
             is_typing: Arc::new(AtomicBool::new(false)),
             is_paused: Arc::new(AtomicBool::new(false)),
             last_text: String::new(),
+            last_wpm_input: String::new(),
         }
     }
 
@@ -134,6 +136,16 @@ impl WindowList {
         }
         
         changed
+    }
+    
+    fn check_and_update_typing_speed(&mut self, cx: &mut Context<Self>) {
+        let current_wpm = self.words_per_minute_input.read(cx).value();
+        
+        // Only update if the value has changed
+        if current_wpm != self.last_wpm_input {
+            self.last_wpm_input = current_wpm.to_string();
+            self.update_typing_speed(cx);
+        }
     }
 
     fn toggle_pause(&mut self, cx: &mut Context<Self>) {
@@ -242,14 +254,16 @@ impl WindowList {
                         "✗ No window selected. Click a window below to select it.".to_string()
                     }),
             )
-            .when(is_paused, |parent| {
-                parent.child(
-                    div()
-                        .text_sm()
-                        .text_color(rgb(0xffcc66))
-                        .child("⏸ Paused (click Resume to continue)"),
-                )
-            })
+            // Always show pause message area to prevent button shifting
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0xffcc66))
+                    .h(px(20.)) // Reserve fixed height
+                    .when(is_paused, |div| {
+                        div.child("⏸ Paused (click Resume to continue)")
+                    }),
+            )
     }
 
     /// Render the input section with controls
@@ -417,6 +431,7 @@ impl WindowList {
             .border_color(rgb(0x505050))
             .flex_grow()
             .flex_shrink()
+            .min_h(px(200.))  // Ensure minimum height
             .overflow_hidden()
             .child(
                 div()
@@ -448,6 +463,9 @@ impl Render for WindowList {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Check if text has changed while typing - if so, reset state
         self.check_text_changed(cx);
+        
+        // Check if typing speed has changed and update config
+        self.check_and_update_typing_speed(cx);
         
         // Try to update local cache from background thread without blocking
         // This avoids locking on every render frame
